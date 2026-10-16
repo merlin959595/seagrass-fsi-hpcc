@@ -68,7 +68,7 @@ tail -n 25 "$RUN_DIR/fluid.stdout"
 echo "---- SOLID LOG TAIL ----"
 tail -n 25 "$RUN_DIR/solid.stdout"
 # Require numerical end-of-run evidence, not just process exit codes.
-if ! grep -Eq 'Reached end at:.*final time: 5(\\.0+)?([[:space:]]|$)' "$RUN_DIR/solid.stdout"; then
+if ! grep -Fq 'Reached end at: final time-window: 500, final time: 5' "$RUN_DIR/solid.stdout"; then
   echo "FSI_FINAL_TIME_NOT_CONFIRMED"
   exit 3
 fi
