@@ -36,7 +36,7 @@ check="$RUN_DIR/perpendicular-flap/fluid-openfoam/system/decomposeParDict"
 grep -Eq "numberOfSubdomains[[:space:]]+4;" "$check" || { echo "UNEXPECTED_DECOMPOSITION"; exit 2; }
 
 # Share one filesystem and one compute node for both preCICE participants.
-singularity exec --cleanenv --bind "$RUN_DIR:/validation" "$SIF" bash -c 'source /usr/lib/openfoam/openfoam2512/etc/bashrc; cd /validation/perpendicular-flap/fluid-openfoam; exec ./run.sh -parallel' >"$RUN_DIR/fluid.stdout" 2>&1 &
+singularity exec --cleanenv --bind "$RUN_DIR:/validation" "$SIF" bash -c 'source /usr/lib/openfoam/openfoam2512/etc/bashrc; export OMPI_MCA_rmaps_base_oversubscribe=1; cd /validation/perpendicular-flap/fluid-openfoam; exec ./run.sh -parallel' >"$RUN_DIR/fluid.stdout" 2>&1 &
 FLUID_PID=$!
 singularity exec --cleanenv --bind "$RUN_DIR:/validation" "$SIF" bash -c 'source /usr/lib/openfoam/openfoam2512/etc/bashrc; cd /validation/perpendicular-flap/solid-calculix; exec ./run.sh' >"$RUN_DIR/solid.stdout" 2>&1 &
 SOLID_PID=$!
