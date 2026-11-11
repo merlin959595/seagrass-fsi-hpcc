@@ -1,40 +1,133 @@
-# Patch only the missing serial Scotch runtime, preserving the accepted
-# Open MPI 5.0.7 / preCICE 3.4.1 build and the already working CalculiX ABI.
-FROM --platform=linux/amd64 ghcr.io/merlin959595/seagrass-fsi-hpcc:ompi5.0.7-precice3.4.1-abi-candidate
+# Fix the Scotch shared-library ABI naming mismatch in the OpenFOAM v2512 image.
+# Preserve the independently ABI-tested Open MPI 5.0.7 + preCICE 3.4.1 image.
+FROM ghcr.io/merlin959595/seagrass-fsi-hpcc:ompi5.0.7-precice3.4.1-abi-candidate
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-ENV DEBIAN_FRONTEND=noninteractive
+ENV SCOTCH_COMPAT_LIB=/opt/scotch-compat/lib
 
-# Ubuntu 24.04 (noble) officially provides libscotch-7.0.
-# Serial Scotch is used by OpenFOAM decomposePar; do not install the old-MPI
-# PT-Scotch package, which could reintroduce mismatched MPI dependencies.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends libscotch-7.0 && \
-    dpkg-query -W 'libscotch-7.0' && \
-    rm -rf /var/lib/apt/lists/*
-
-# Exercise the EXACT executable that failed on the HPCC, not only pimpleFoam.
-# Source OpenFOAM with nounset disabled (its startup probes unset variables).
-RUN export WM_MPLIB=SYSTEMOPENMPI; \
-    source /usr/lib/openfoam/openfoam2512/etc/bashrc; \
-    set -e; \
-    export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"; \
-    export LD_LIBRARY_PATH="/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:${LD_LIBRARY_PATH:-}"; \
-    test "$WM_PROJECT_VERSION" = v2512; \
-    test "$(command -v mpirun)" = /opt/openmpi-5.0.7/bin/mpirun; \
-    echo '==== decomposePar required Scotch library ===='; \
-    ldd -r "$(command -v decomposePar)" > /tmp/decompose-link.txt 2>&1 || { cat /tmp/decompose-link.txt; exit 1; }; \
-    grep -E 'libscotch.so.7.0' /tmp/decompose-link.txt; \
-    ! grep -E 'not found|undefined symbol|libmpi_cxx' /tmp/decompose-link.txt; \
-    decomposePar -help > /tmp/decompose-help.txt 2>&1; \
-    grep -E 'decomposePar|Usage' /tmp/decompose-help.txt; \
-    echo '==== FSI library retention ===='; \
-    precice-version | grep -F '3.4.1'; \
-    mpirun --version | grep -F '5.0.7'; \
-    for app in pimpleFoam ccx_preCICE; do \
-      ldd -r "$(command -v "$app")" > "/tmp/$app.link" 2>&1 || { cat "/tmp/$app.link"; exit 1; }; \
-      ! grep -E 'not found|undefined symbol|libmpi_cxx' "/tmp/$app.link"; \
+# Ubuntu Noble's Scotch package uses libscotch-7.0.so while this OpenFOAM
+# binary requires libscotch.so.7.0. Link to the *32-bit integer* variant,
+# consistent with OpenFOAM's linux64GccDPInt32Opt build. No PT-Scotch/OpenMPI4.
+# This is only a candidate: strict loader and actual partition checks below.
+RUN set -eux; \
+    dpkg-query -W -f='${Version}\n' libscotch-7.0 | grep -Fx '7.0.4-1ubuntu2'; \
+    test -d /usr/lib/x86_64-linux-gnu/scotch-int32; \
+    mkdir -p "$SCOTCH_COMPAT_LIB"; \
+    for lib in scotch scotcherr scotcherrexit esmumps; do \
+      file="/usr/lib/x86_64-linux-gnu/scotch-int32/lib${lib}-7.0.so"; \
+      test -s "$file"; \
+      ln -s "$file" "$SCOTCH_COMPAT_LIB/lib${lib}.so.7.0"; \
     done; \
-    echo DECOMPOSEPAR_SCOTCH_ABI_SMOKE_PASS
+    ls -l "$SCOTCH_COMPAT_LIB"
+
+ENV LD_LIBRARY_PATH="/opt/scotch-compat/lib:${LD_LIBRARY_PATH}"
+
+# OpenFOAM's vendor bashrc must be sourced before enabling errexit/nounset.
+# The test must verify both dynamic linking AND actual Scotch decomposition.
+RUN <<'VERIFY'
+export WM_MPLIB=SYSTEMOPENMPI
+source /usr/lib/openfoam/openfoam2512/etc/bashrc
+set -eo pipefail
+export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"
+export LD_LIBRARY_PATH="$SCOTCH_COMPAT_LIB:/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:${LD_LIBRARY_PATH:-}"
+test "${WM_PROJECT_VERSION:-}" = v2512
+test "$(command -v mpirun)" = /opt/openmpi-5.0.7/bin/mpirun
+echo '==== decomposePar full dependency resolution ===='
+ldd -r "$(command -v decomposePar)" > /tmp/decompose-link.txt 2>&1 || {
+  cat /tmp/decompose-link.txt; exit 1;
+}
+cat /tmp/decompose-link.txt
+if grep -E 'not found|undefined symbol|libmpi_cxx' /tmp/decompose-link.txt; then
+  echo "ERROR: unresolved decomposePar dependency"; exit 1;
+fi
+decomposePar -help > /tmp/decompose-help.txt 2>&1 || {
+  cat /tmp/decompose-help.txt; exit 1;
+}
+test -s /tmp/decompose-help.txt
+
+echo '==== real serial Scotch domain-decomposition smoke test ===='
+mkdir -p /tmp/foam-scotch-smoke/system /tmp/foam-scotch-smoke/0
+cat > /tmp/foam-scotch-smoke/system/blockMeshDict <<'DICT'
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    object blockMeshDict;
+}
+scale 1;
+vertices
+(
+    (0 0 0) (1 0 0) (1 1 0) (0 1 0)
+    (0 0 1) (1 0 1) (1 1 1) (0 1 1)
+);
+blocks ( hex (0 1 2 3 4 5 6 7) (2 2 2) simpleGrading (1 1 1) );
+edges ();
+boundary
+(
+    walls
+    {
+        type wall;
+        faces
+        (
+            (0 3 2 1) (4 5 6 7)
+            (0 1 5 4) (1 2 6 5)
+            (2 3 7 6) (3 0 4 7)
+        );
+    }
+);
+mergePatchPairs ();
+DICT
+cat > /tmp/foam-scotch-smoke/system/decomposeParDict <<'DICT'
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    object decomposeParDict;
+}
+numberOfSubdomains 2;
+method scotch;
+DICT
+cat > /tmp/foam-scotch-smoke/system/controlDict <<'DICT'
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    object controlDict;
+}
+application pimpleFoam;
+startFrom startTime;
+startTime 0;
+stopAt endTime;
+endTime 1;
+deltaT 0.1;
+writeControl timeStep;
+writeInterval 1;
+DICT
+blockMesh -case /tmp/foam-scotch-smoke > /tmp/smoke-blockMesh.log 2>&1 || {
+  cat /tmp/smoke-blockMesh.log; exit 1;
+}
+decomposePar -case /tmp/foam-scotch-smoke -constant -fileHandler uncollated     > /tmp/smoke-decomposePar.log 2>&1 || {
+  cat /tmp/smoke-decomposePar.log; exit 1;
+}
+test -s /tmp/foam-scotch-smoke/processor0/constant/polyMesh/owner
+test -s /tmp/foam-scotch-smoke/processor1/constant/polyMesh/owner
+grep -E 'scotch|Decompos|Number of processor' /tmp/smoke-decomposePar.log | head -n 20 || true
+
+echo '==== retain full-stack FSI runtime ===='
+precice-version | grep -F '3.4.1'
+mpirun --version | grep -F '5.0.7'
+for app in pimpleFoam ccx_preCICE; do
+  ldd -r "$(command -v "$app")" > "/tmp/$app.link" 2>&1 || {
+    cat "/tmp/$app.link"; exit 1;
+  }
+  if grep -E 'not found|undefined symbol|libmpi_cxx' "/tmp/$app.link"; then
+    echo "ERROR: FSI legacy dependency"; exit 1;
+  fi
+done
+echo DECOMPOSEPAR_SCOTCH_REAL_SMOKE_PASS
+VERIFY
 
 WORKDIR /work
