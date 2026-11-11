@@ -1,0 +1,40 @@
+# Patch only the missing serial Scotch runtime, preserving the accepted
+# Open MPI 5.0.7 / preCICE 3.4.1 build and the already working CalculiX ABI.
+FROM --platform=linux/amd64 ghcr.io/merlin959595/seagrass-fsi-hpcc:ompi5.0.7-precice3.4.1-abi-candidate
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Ubuntu 24.04 (noble) officially provides libscotch-7.0.
+# Serial Scotch is used by OpenFOAM decomposePar; do not install the old-MPI
+# PT-Scotch package, which could reintroduce mismatched MPI dependencies.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libscotch-7.0 && \
+    dpkg-query -W 'libscotch-7.0' && \
+    rm -rf /var/lib/apt/lists/*
+
+# Exercise the EXACT executable that failed on the HPCC, not only pimpleFoam.
+# Source OpenFOAM with nounset disabled (its startup probes unset variables).
+RUN export WM_MPLIB=SYSTEMOPENMPI; \
+    source /usr/lib/openfoam/openfoam2512/etc/bashrc; \
+    set -e; \
+    export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"; \
+    export LD_LIBRARY_PATH="/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:${LD_LIBRARY_PATH:-}"; \
+    test "$WM_PROJECT_VERSION" = v2512; \
+    test "$(command -v mpirun)" = /opt/openmpi-5.0.7/bin/mpirun; \
+    echo '==== decomposePar required Scotch library ===='; \
+    ldd -r "$(command -v decomposePar)" > /tmp/decompose-link.txt 2>&1 || { cat /tmp/decompose-link.txt; exit 1; }; \
+    grep -E 'libscotch.so.7.0' /tmp/decompose-link.txt; \
+    ! grep -E 'not found|undefined symbol|libmpi_cxx' /tmp/decompose-link.txt; \
+    decomposePar -help > /tmp/decompose-help.txt 2>&1; \
+    grep -E 'decomposePar|Usage' /tmp/decompose-help.txt; \
+    echo '==== FSI library retention ===='; \
+    precice-version | grep -F '3.4.1'; \
+    mpirun --version | grep -F '5.0.7'; \
+    for app in pimpleFoam ccx_preCICE; do \
+      ldd -r "$(command -v "$app")" > "/tmp/$app.link" 2>&1 || { cat "/tmp/$app.link"; exit 1; }; \
+      ! grep -E 'not found|undefined symbol|libmpi_cxx' "/tmp/$app.link"; \
+    done; \
+    echo DECOMPOSEPAR_SCOTCH_ABI_SMOKE_PASS
+
+WORKDIR /work
