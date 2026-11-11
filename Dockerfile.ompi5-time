@@ -1,22 +1,16 @@
-# Restore the GNU /usr/bin/time executable required by the frozen
-# Python FSI controller for subprocess.Popen(["/usr/bin/time", "-v", ...]).
-# Base includes the already validated Scotch int32 SONAME shim and full MPI5 stack.
+# Add actual GNU /usr/bin/time without relying on Docker BuildKit's broken DNS.
+# GitHub Actions stages the Ubuntu 24.04 runner's distro executable, verifies
+# it on the host and checks it again inside this Ubuntu 24.04 derived image.
+# This preserves all validated MPI5, preCICE3.4.1 and Scotch layers.
 FROM ghcr.io/merlin959595/seagrass-fsi-hpcc:ompi5.0.7-precice3.4.1-scotch-candidate
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-ENV DEBIAN_FRONTEND=noninteractive
 
-RUN set -eux; \
-    apt-get update -o Acquire::Retries=5; \
-    apt-get install -y --no-install-recommends -o Acquire::Retries=5 time; \
-    test -x /usr/bin/time; \
-    /usr/bin/time -v /bin/true 2> /tmp/gnu-time-smoke.stderr; \
-    grep -F "Command being timed" /tmp/gnu-time-smoke.stderr; \
-    dpkg-query -W time; \
-    rm -rf /var/lib/apt/lists/*
+# The GH Actions workflow creates this build-context file BEFORE docker/buildx.
+# Fail closed if it is missing rather than silently using a fake timer.
+COPY --chmod=0755 .build-context/gnu-time /usr/bin/time
 
-# Exercise the previously failing invocation WITHOUT modifying the imported
-# solver or fabricating a successful coupled FSI run.
+# Run OpenFOAM startup without nounset, then enable strict exit validation.
 RUN <<'VERIFY'
 export WM_MPLIB=SYSTEMOPENMPI
 source /usr/lib/openfoam/openfoam2512/etc/bashrc
@@ -24,32 +18,41 @@ set -eo pipefail
 export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"
 export LD_LIBRARY_PATH="/opt/scotch-compat/lib:/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:${LD_LIBRARY_PATH:-}"
 
-echo "===== required command availability ====="
-test "$WM_PROJECT_VERSION" = v2512
-test "$(command -v mpirun)" = /opt/openmpi-5.0.7/bin/mpirun
+echo "=== GNU time must be a real executable and support -v ==="
 test -x /usr/bin/time
-command -v decomposePar
-command -v blockMesh
-command -v pimpleFoam
-command -v ccx_preCICE
-precice-version | grep -F 3.4.1
-mpirun --version | grep -F 5.0.7
-decomposePar -help > /tmp/decompose-help.log 2>&1
-test -s /tmp/decompose-help.log
-
-echo "===== full linker dependency check ====="
-for app in decomposePar pimpleFoam ccx_preCICE; do
-    binary="$(command -v "$app")"
-    report="$(ldd -r "$binary" 2>&1)" || { echo "$report"; exit 11; }
-    if echo "$report" | grep -E 'not found|undefined symbol|libmpi_cxx'; then
-        echo "BAD_DYNAMIC_LINK: $app"; exit 12
-    fi
-done
-
-echo "===== real GNU time -v smoke ====="
 /usr/bin/time -v /bin/true 2> /tmp/time-smoke.log
 grep -F "Command being timed" /tmp/time-smoke.log
-echo FSI_MPI5_SCOTCH_GNUTIME_RUNTIME_PASS
+grep -F "Maximum resident set size" /tmp/time-smoke.log
+
+echo "=== Versions ==="
+test "${WM_PROJECT_VERSION:-}" = v2512
+test "$(command -v mpirun)" = /opt/openmpi-5.0.7/bin/mpirun
+mpirun --version | head -n 1 | grep -F '5.0.7'
+precice-version | grep -F '3.4.1'
+command -v ccx_preCICE
+
+echo "=== ALL executables invoked by frozen Python FSI controller ==="
+for app in mpirun pimpleFoam ccx_preCICE decomposePar            precice-config-validate checkMesh            reconstructPar reconstructParMesh dpkg-query; do
+  binary="$(command -v "$app")" || { echo "MISSING_EXECUTABLE: $app"; exit 20; }
+  test -x "$binary" || { echo "NOT_EXECUTABLE: $binary"; exit 21; }
+  echo "$app => $binary"
+done
+
+echo "=== All OpenFOAM and preCICE command dynamic library links ==="
+for app in pimpleFoam ccx_preCICE decomposePar            precice-config-validate checkMesh reconstructPar reconstructParMesh; do
+  binary="$(command -v "$app")"
+  report="$(ldd -r "$binary" 2>&1)" || { echo "$report"; exit 22; }
+  if echo "$report" | grep -E 'not found|undefined symbol|libmpi_cxx'; then
+    echo "BAD_DYNAMIC_LIBRARY: $app"; exit 23
+  fi
+done
+
+echo "=== Real MPI Init / Finalize ==="
+mpirun --allow-run-as-root --oversubscribe --bind-to none -np 2     /usr/local/bin/ompi5-smoke > /tmp/mpi-smoke.txt
+grep -F 'FSI_MPI_SMOKE_RANK=0/2' /tmp/mpi-smoke.txt
+grep -F 'FSI_MPI_SMOKE_RANK=1/2' /tmp/mpi-smoke.txt
+
+echo "FSI_MPI5_FULL_CONTROLLER_DEPENDENCY_SMOKE_PASS"
 VERIFY
 
 WORKDIR /work
