@@ -45,7 +45,7 @@ test ! -e "$SIF" && test ! -e "$TEMP" && test ! -e "$PILOT"
 echo "===== ALLOCATED NODE ====="
 hostname; date -Is
 echo "JOB=$SLURM_JOB_ID CPU_PER_TASK=$SLURM_CPUS_PER_TASK"
-echo "===== DOWNLOAD AND VERIFY NEW SCOTCH SIF ====="
+echo "===== DOWNLOAD AND VERIFY GNU-TIME FIXED SIF ====="
 singularity pull "$TEMP" "$IMAGE"
 singularity sif list "$TEMP"
 mv "$TEMP" "$SIF"
@@ -79,6 +79,28 @@ echo "DECOMPOSEPAR_ABI_PASS"
 test -x /usr/bin/time || { echo "GNU_TIME_MISSING"; exit 13; }
 /usr/bin/time -v /bin/true 2>&1 | grep -F "Command being timed"
 echo "GNU_TIME_RUNTIME_PASS"
+echo "===== FROZEN CONTROLLER END-TO-END RUNTIME DEPENDENCY GATE ====="
+for app in mpirun pimpleFoam decomposePar precice-config-validate checkMesh reconstructPar reconstructParMesh python3 dpkg-query; do
+  executable="$(command -v "$app")" || { echo "FATAL_MISSING_EXECUTABLE: $app"; exit 21; }
+  test -x "$executable" || { echo "FATAL_NOT_EXECUTABLE: $executable"; exit 22; }
+  echo "FOUND $app => $executable"
+done
+for app in pimpleFoam decomposePar precice-config-validate checkMesh reconstructPar reconstructParMesh; do
+  binary="$(command -v "$app")"
+  deps="$(ldd -r "$binary" 2>&1)" || { printf "%s\n" "$deps"; exit 23; }
+  if printf "%s\n" "$deps" | grep -E "not found|undefined symbol|libmpi_cxx"; then
+    echo "FATAL_DYNAMIC_LINK: $app"; exit 24
+  fi
+done
+for native in "$ROOT/scripts/native/bin/ccx_preCICE_persistent_v2"               "$ROOT/scripts/native/lib/libseagrassReferenceRestart.so"               "$ROOT/fsi-explicit-test/mesh-guard/lib/libseagrassExplicitMeshGuard.so"; do
+  test -s "$native" || { echo "FATAL_MISSING_NATIVE: $native"; exit 25; }
+  deps="$(ldd -r "$native" 2>&1)" || { printf "%s\n" "$deps"; exit 26; }
+  if printf "%s\n" "$deps" | grep -E "not found|undefined symbol|libmpi_cxx"; then
+    echo "FATAL_NATIVE_DYNAMIC_LINK: $native"; exit 27
+  fi
+done
+python3 -c "import json,subprocess,fcntl; from pathlib import Path; p=Path.home()/\"hpcc-fsi/seagrass-implicit-20261111\"; assert (p/\"fsi-implicit-production/run_production.py\").is_file()"
+echo "FULL_CONTROLLER_DEPENDENCY_PREFLIGHT_PASS"
 echo "===== FROZEN MESH, XML, AND 8 MPI PREFLIGHT ====="
 python3 "$ROOT/hpcc/implicit-002-driver.py" \
  --root "$ROOT" --work "$HOME/hpcc-fsi/implicit-pilot-002-8mpi-timefix-20261111/preflight" \
