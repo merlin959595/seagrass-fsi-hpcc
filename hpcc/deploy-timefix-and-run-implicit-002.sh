@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# One compute-node Slurm job: pull Scotch-fixed SIF and run isolated 0.02s implicit FSI.
+# One compute-node Slurm job: re-use verified GNU-time SIF or pull it if absent; real isolated 0.02s FSI.
 # Does not overwrite the verified fullstack SIF, old SIF, or failed job 87098 records.
 set -euo pipefail
 ROOT="$HOME/hpcc-fsi/seagrass-implicit-20261111"
 BASE="$HOME/hpcc-fsi"
 SIF="$HOME/seagrass-fsi-ompi507-scotch-time.sif"
-PILOT="$BASE/implicit-pilot-002-8mpi-timefix-20261111"
 LOGS="$BASE/logs"
-BATCH="$BASE/ompi507-timefix-fsi-002.sbatch"
+BATCH="$(mktemp "$BASE/ompi507-timefix-fsi-002.XXXXXX.sbatch")"
 test -s "$ROOT/hpcc/implicit-002-driver.py" || { echo "STOP missing pilot driver"; exit 1; }
 test -s "$ROOT/fsi-implicit-production/run_production.py" || { echo "STOP missing input controller"; exit 1; }
 test -s "$ROOT/scripts/native/bin/ccx_preCICE_persistent_v2" || { echo "STOP missing custom CCX"; exit 1; }
 test -s "$HOME/seagrass-fsi-ompi507-fullstack.sif" || { echo "STOP missing former SIF"; exit 1; }
-test ! -e "$SIF" || { echo "STOP candidate SIF already exists; inspect before reuse: $SIF"; exit 1; }
-test ! -e "$SIF.partial.sif" || { echo "STOP incomplete prior pull"; exit 1; }
-test ! -e "$PILOT" || { echo "STOP pilot already exists; will not overwrite: $PILOT"; exit 1; }
+if [[ -e "$SIF" && ! -s "$SIF" ]]; then echo "STOP: existing SIF is zero length; manual audit required: $SIF"; exit 1; fi
+if [[ ! -e "$SIF" && -e "$SIF.partial.sif" ]]; then echo "STOP: incomplete image pull; manual audit required: $SIF.partial.sif"; exit 1; fi
 mkdir -p "$LOGS"
 cat > "$BATCH" <<'SBATCH'
 #!/usr/bin/env bash
@@ -23,7 +21,7 @@ ROOT="$HOME/hpcc-fsi/seagrass-implicit-20261111"
 BASE="$HOME/hpcc-fsi"
 SIF="$HOME/seagrass-fsi-ompi507-scotch-time.sif"
 TEMP="$SIF.partial.sif"
-PILOT="$BASE/implicit-pilot-002-8mpi-timefix-20261111"
+PILOT="$BASE/implicit-pilot-002-8mpi-timefix-${SLURM_JOB_ID:?}"
 IMAGE="docker://ghcr.io/merlin959595/seagrass-fsi-hpcc:ompi5.0.7-precice3.4.1-scotch-time-candidate"
 diagnose() {
   rc=$?
@@ -41,18 +39,33 @@ diagnose() {
   fi
 }
 trap diagnose EXIT
-test ! -e "$SIF" && test ! -e "$TEMP" && test ! -e "$PILOT"
+test ! -e "$PILOT" || { echo "STOP: pilot directory already exists: $PILOT" >&2; exit 1; }
 echo "===== ALLOCATED NODE ====="
 hostname; date -Is
 echo "JOB=$SLURM_JOB_ID CPU_PER_TASK=$SLURM_CPUS_PER_TASK"
-echo "===== DOWNLOAD AND VERIFY GNU-TIME FIXED SIF ====="
-singularity pull "$TEMP" "$IMAGE"
-singularity sif list "$TEMP"
-mv "$TEMP" "$SIF"
-sha256sum "$SIF" | tee "$SIF.sha256"
+echo "===== REUSE VERIFIED EXISTING SIF OR PULL IF MISSING ====="
+if [[ -s "$SIF" ]]; then
+  echo "EXISTING_SIF_DETECTED: $SIF"
+  if [[ -s "$SIF.sha256" ]]; then
+    sha256sum -c "$SIF.sha256" || { echo "STOP: existing SIF checksum mismatch" >&2; exit 31; }
+  else
+    echo "WARNING: no prior checksum sidecar; recording hash in Slurm log (not asserting image provenance)"
+    sha256sum "$SIF"
+  fi
+else
+  test ! -e "$SIF" || { echo "STOP: corrupt zero-length SIF" >&2; exit 32; }
+  test ! -e "$TEMP" || { echo "STOP: old partial SIF" >&2; exit 33; }
+  singularity pull "$TEMP" "$IMAGE"
+  singularity sif list "$TEMP"
+  mv "$TEMP" "$SIF"
+  sha256sum "$SIF" | tee "$SIF.sha256"
+fi
+singularity sif list "$SIF"
+echo "SIF_IMAGE_FORMAT_PASS (actual FSI environment verified below)"
 echo "===== OPENFOAM DEPENDENCY, MESH PREFLIGHT, AND REAL FSI ====="
 singularity exec --cleanenv "$SIF" bash -c '
 set +eu
+PILOT="$1"
 export WM_MPLIB=SYSTEMOPENMPI
 source /usr/lib/openfoam/openfoam2512/etc/bashrc
 export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"
@@ -103,14 +116,14 @@ python3 -c "import json,subprocess,fcntl; from pathlib import Path; p=Path.home(
 echo "FULL_CONTROLLER_DEPENDENCY_PREFLIGHT_PASS"
 echo "===== FROZEN MESH, XML, AND 8 MPI PREFLIGHT ====="
 python3 "$ROOT/hpcc/implicit-002-driver.py" \
- --root "$ROOT" --work "$HOME/hpcc-fsi/implicit-pilot-002-8mpi-timefix-20261111/preflight" \
+ --root "$ROOT" --work "$PILOT/preflight" \
  --mode preflight --ranks 8
 echo "===== REAL 0.02s IMPLICIT TWO-WAY FSI ====="
 python3 "$ROOT/hpcc/implicit-002-driver.py" \
- --root "$ROOT" --work "$HOME/hpcc-fsi/implicit-pilot-002-8mpi-timefix-20261111/production" \
+ --root "$ROOT" --work "$PILOT/production" \
  --mode run --ranks 8
 echo "HPCC_IMPLICIT_0P02_ACCEPTED_160_WINDOWS_PASS"
-'
+' bash "$PILOT"
 echo "===== NEW TIME-FIXED PILOT PASSED ====="
 SBATCH
 echo "Submitting GNU-time-fixed 8-MPI + 2 CCX thread real 0.02s pilot."
@@ -120,4 +133,4 @@ JOBID="$(sbatch --parsable -p cpu -N 1 -n 1 -c 12 --mem=24G -t 12:00:00 \
 echo "JOBID=$JOBID"
 echo "OUT=$LOGS/fsi-timefix-002-$JOBID.out"
 echo "ERR=$LOGS/fsi-timefix-002-$JOBID.err"
-echo "STATE=$PILOT/production/STATE.json"
+echo "STATE=$BASE/implicit-pilot-002-8mpi-timefix-$JOBID/production/STATE.json"
