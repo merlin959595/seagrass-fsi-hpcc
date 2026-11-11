@@ -37,14 +37,14 @@ singularity exec --cleanenv "$TARGET" bash -c '
   export WM_MPLIB=SYSTEMOPENMPI
   source /usr/lib/openfoam/openfoam2512/etc/bashrc
   export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"
-  export LD_LIBRARY_PATH="/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:\${LD_LIBRARY_PATH:-}"
-  export PKG_CONFIG_PATH="/opt/precice-3.4.1-ompi5/lib/pkgconfig:/opt/precice-3.4.1-ompi5/lib64/pkgconfig:\${PKG_CONFIG_PATH:-}"
+  export LD_LIBRARY_PATH="/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:${LD_LIBRARY_PATH:-}"
+  export PKG_CONFIG_PATH="/opt/precice-3.4.1-ompi5/lib/pkgconfig:/opt/precice-3.4.1-ompi5/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
   set -eo pipefail
 
   echo "==== MPI/OF/PRECICE ===="
   mpirun --version | head -n 1
   test "$(command -v mpirun)" = "/opt/openmpi-5.0.7/bin/mpirun"
-  test "\${WM_PROJECT_VERSION:-}" = "v2512"
+  test "${WM_PROJECT_VERSION:-}" = "v2512"
   test "$(command -v precice-version)" = "/opt/precice-3.4.1-ompi5/bin/precice-version"
   precice-version
   pkg-config --modversion libprecice | grep -Fx "3.4.1"
