@@ -13,6 +13,22 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - name: Stage verified GNU time from Ubuntu 24.04 runner (avoid Docker DNS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Host OS:"
+          cat /etc/os-release
+          grep -Fx 'VERSION_ID="24.04"' /etc/os-release
+          test -x /usr/bin/time || { echo "::error::Ubuntu runner lacks /usr/bin/time. Stop, do not silently substitute shell time."; exit 1; }
+          /usr/bin/time -v /bin/true 2> /tmp/time-test
+          grep -F 'Command being timed' /tmp/time-test
+          mkdir -p .build-context
+          cp -L /usr/bin/time .build-context/gnu-time
+          chmod 755 .build-context/gnu-time
+          file .build-context/gnu-time
+          ldd .build-context/gnu-time
+          sha256sum .build-context/gnu-time
       - uses: docker/setup-buildx-action@v3
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -20,7 +36,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build test and push
+      - name: Build, validate all controller dependencies and push
         uses: docker/build-push-action@v6
         with:
           context: .
