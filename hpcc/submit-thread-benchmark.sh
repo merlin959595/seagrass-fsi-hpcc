@@ -12,6 +12,20 @@ test -s "$SIF"
 test -s "$SCRIPT"
 test -s "$BASE/implicit-pilot-002-8mpi-timefix-87186/production/STATE.json"
 python3 -m py_compile "$SCRIPT"
+# Validate actual 87186 dictionaries BEFORE consuming a Slurm allocation.
+python3 "$SCRIPT" --inspect-only --windows 6
+# Prevent accidental duplicate runs; do not cancel or alter any existing job.
+if command -v squeue >/dev/null 2>&1; then
+  ACTIVE="$(squeue -h -u "$USER" -n fsi-omp-bench -o '%i %T' 2>/dev/null || true)"
+  if [[ -n "$ACTIVE" ]]; then
+    echo "REFUSE_DUPLICATE: existing fsi-omp-bench job(s):"
+    printf '%s\n' "$ACTIVE"
+    exit 41
+  fi
+else
+  echo "STOP: Slurm squeue unavailable, cannot safely check duplicates"
+  exit 42
+fi
 if test -s "$SIF.sha256"; then sha256sum -c "$SIF.sha256"; fi
 BATCH="$(mktemp "$BASE/short-fsi-threads.XXXXXXXX.sbatch")"
 cat >"$BATCH" <<'SBATCH'
