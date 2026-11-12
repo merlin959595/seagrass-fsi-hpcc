@@ -1,0 +1,39 @@
+name: Verify short FSI benchmark controller
+
+on:
+  push:
+    branches:
+      - upgrade/openmpi-5.0.7-hpcc
+    paths:
+      - 'hpcc/benchmark-short-fsi.py'
+      - 'hpcc/submit-thread-benchmark.sh'
+      - '.github/workflows/check-short-benchmark.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Syntax and safe patching checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile hpcc/benchmark-short-fsi.py
+          bash -n hpcc/submit-thread-benchmark.sh
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          p=Path("hpcc/benchmark-short-fsi.py")
+          spec=importlib.util.spec_from_file_location("bench",p)
+          b=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(b)
+          source="*STEP,INC=1320,NLGEOM\n*DYNAMIC,DIRECT\n0.000125, 0.02\n*NODE FILE,FREQUENCY=80\n*EL FILE,FREQUENCY=80\n*RESTART,WRITE,FREQUENCY=80,OVERLAY\n*END STEP\n"
+          patched=b.patch_deck(source,0.00075,6)
+          assert "*DYNAMIC,DIRECT\n0.000125, 0.00075" in patched
+          assert patched.count("FREQUENCY=6")==3
+          assert "FREQUENCY=80" not in patched
+          assert b.replace_one(r'(<max-time value=")0\.02(")',r'\g<1>0.00075\2','<max-time value="0.02" />',"xml")=='<max-time value="0.00075" />'
+          print("SHORT_BENCHMARK_STATIC_TEST_PASS")
+          PY
