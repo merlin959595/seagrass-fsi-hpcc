@@ -46,5 +46,23 @@ jobs:
               pass
           else:
               raise AssertionError("Incorrect prior endTime accepted")
+          real_control = (
+              "startFrom startTime; startTime 0; stopAt endTime; endTime 0.02; deltaT 0.000125;\n"
+              "adjustTimeStep no; maxCo 0.5; writeControl timeStep; writeInterval 80; purgeWrite 0;\n"
+              "flowExtrema { type fieldMinMax; libs (fieldFunctionObjects); fields (U p k omega); writeControl timeStep; writeInterval 80; }\n"
+              "bladeForces { type forces; libs (forces); patches (bladeInterface); rho rhoInf; rhoInf 1000; pRef 0; CofR (0 0 0); writeControl timeStep; writeInterval 80; }\n"
+              "wallYPlus { type yPlus; libs (fieldFunctionObjects); executeControl timeStep; executeInterval 1; writeControl timeStep; writeInterval 80; }\n"
+          )
+          result=b.replace_foam_write_intervals(b.replace_foam_end_time(real_control,0.00075),6)
+          assert result.count("writeInterval 6;")==4, result
+          assert "endTime 0.00075;" in result
+          assert "stopAt endTime;" in result
+          assert "executeInterval 1;" in result
+          try:
+              b.replace_foam_write_intervals("writeControl timeStep; writeInterval 80;",6)
+          except RuntimeError:
+              pass
+          else:
+              raise AssertionError("unexpected number of writeIntervals accepted")
           print("SHORT_BENCHMARK_STATIC_TEST_PASS")
           PY
