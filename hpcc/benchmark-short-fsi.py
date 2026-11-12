@@ -57,13 +57,31 @@ def replace_one(pattern, replacement, source, name):
     return updated
 
 
+def replace_foam_end_time(source, end):
+    """Replace only the active endTime numeric value, accepting 0.02/2e-2/etc."""
+    pattern = r"(?m)^([ \t]*endTime[ \t]+)([-+0-9.eE]+)([ \t]*;)"
+    matches = list(re.finditer(pattern, source))
+    if len(matches) != 1:
+        candidates = [line.strip() for line in source.splitlines()
+                      if "endTime" in line]
+        raise RuntimeError(
+            f"controlDict: expected one active numeric endTime, got {len(matches)}. "
+            f"Matching lines: {candidates[:12]}"
+        )
+    m = matches[0]
+    old = float(m.group(2))
+    if not math.isclose(old, .02, rel_tol=0, abs_tol=1e-10):
+        raise RuntimeError(f"controlDict unexpected existing endTime={old:.16g}, expected 0.02")
+    return source[:m.start(2)] + f"{end:.12g}" + source[m.end(2):]
+
+
 def patch_deck(source, end, steps):
     pattern = r"(?im)^(\*DYNAMIC,DIRECT[^\n]*\n)([^\n]+)"
     m = re.search(pattern, source)
     if not m:
         raise RuntimeError("Missing *DYNAMIC,DIRECT with next-line step sizes")
     entries = m.group(2).split(",")
-    if len(entries) < 2 or abs(float(entries[0]) - DT) > 1e-12 or abs(float(entries[1]) - .02) > 1e-12:
+    if len(entries) < 2 or abs(float(entries[0]) - DT) > 1e-12 or abs(float(entries[1]) - .02) > 1e-10:
         raise RuntimeError(f"Unexpected dynamic step parameters: {m.group(2)!r}")
     entries[1] = f" {end:.12g}"
     result = source[:m.start(2)] + ",".join(entries) + source[m.end(2):]
@@ -187,7 +205,7 @@ def main():
 
         control = fluid / "system/controlDict"
         txt = control.read_text()
-        txt = replace_one(r"(^\s*endTime\s+)0\.02(\s*;)", rf"\g<1>{t:.12g}\2", txt, "controlDict endTime")
+        txt = replace_foam_end_time(txt, t)
         txt = replace_one(r"(writeControl timeStep; writeInterval )80",
                           rf"\g<1>{n}", txt, "controlDict writeInterval")
         control.write_text(txt)
