@@ -255,10 +255,10 @@ def main():
             raise RuntimeError(f"Expected exactly one intercepted solid launch, observed {len(hits)}")
         # The launcher can silently override OMP; verify actual solver output as well.
         spooles_text = (solid / "spooles.out").read_text(errors="replace")
-        if not re.search(rf"Using\\s+{args.threads}\\s+threads", spooles_text):
+        if not re.search(rf"Using\s+{args.threads}\s+threads", spooles_text):
             raise RuntimeError(f"SPOOLES did not confirm {args.threads} threads in spooles.out")
         solid_text = (run / "solid.log").read_text(errors="replace")
-        if not re.search(rf"Using up to {args.threads} cpu\\(s\\) for spooles", solid_text):
+        if not re.search(rf"Using up to {args.threads} cpu\(s\) for spooles", solid_text):
             raise RuntimeError(f"CalculiX did not report {args.threads} SPOOLES CPUs")
         gate_file = run / f"GATE-{n:04d}.json"
         gate = json.loads(gate_file.read_text())
