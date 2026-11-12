@@ -35,5 +35,16 @@ jobs:
           assert patched.count("FREQUENCY=6")==3
           assert "FREQUENCY=80" not in patched
           assert b.replace_one(r'(<max-time value=")0\.02(")',r'\g<1>0.00075\2','<max-time value="0.02" />',"xml")=='<max-time value="0.00075" />'
+          for old in ("0.02", "0.0200000", "2e-2", "0.0200000000000000"):
+              before=f"application pimpleFoam;\nendTime {old};\nwriteControl timeStep; writeInterval 80;\n"
+              after=b.replace_foam_end_time(before,0.00075)
+              assert "endTime 0.00075;" in after, (old, after)
+              assert "writeInterval 80;" in after
+          try:
+              b.replace_foam_end_time("endTime 1.0;\n",0.00075)
+          except RuntimeError:
+              pass
+          else:
+              raise AssertionError("Incorrect prior endTime accepted")
           print("SHORT_BENCHMARK_STATIC_TEST_PASS")
           PY
