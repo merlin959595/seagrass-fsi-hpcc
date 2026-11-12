@@ -58,21 +58,69 @@ def replace_one(pattern, replacement, source, name):
 
 
 def replace_foam_end_time(source, end):
-    """Replace only the active endTime numeric value, accepting 0.02/2e-2/etc."""
-    pattern = r"(?m)^([ \t]*endTime[ \t]+)([-+0-9.eE]+)([ \t]*;)"
+    """Change the single numeric endTime token, even inside semicolon-packed lines.
+
+    OpenFOAM's actual validated case uses:
+        startFrom startTime; startTime 0; stopAt endTime; endTime 0.02; deltaT ...
+    Never match "stopAt endTime;" since it has no following number.
+    """
+    numeric = r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
+    pattern = r"(?<![A-Za-z0-9_])endTime[ \t]+" + numeric + r"([ \t]*;)"
     matches = list(re.finditer(pattern, source))
     if len(matches) != 1:
-        candidates = [line.strip() for line in source.splitlines()
-                      if "endTime" in line]
+        candidates = [line.strip() for line in source.splitlines() if "endTime" in line]
         raise RuntimeError(
-            f"controlDict: expected one active numeric endTime, got {len(matches)}. "
-            f"Matching lines: {candidates[:12]}"
+            f"controlDict: expected one numeric endTime, got {len(matches)}; "
+            f"candidate lines: {candidates[:12]}"
         )
     m = matches[0]
-    old = float(m.group(2))
-    if not math.isclose(old, .02, rel_tol=0, abs_tol=1e-10):
-        raise RuntimeError(f"controlDict unexpected existing endTime={old:.16g}, expected 0.02")
-    return source[:m.start(2)] + f"{end:.12g}" + source[m.end(2):]
+    previous = float(m.group(1))
+    if not math.isclose(previous, .02, rel_tol=0, abs_tol=1e-10):
+        raise RuntimeError(
+            f"controlDict unexpected original endTime={previous:.16g}, expected 0.02"
+        )
+    return source[:m.start(1)] + f"{end:.12g}" + source[m.end(1):]
+
+
+def replace_foam_write_intervals(source, windows):
+    """Adjust all four accepted controlDict write intervals in the trial only.
+
+    One global writeControl and three functionObjects (flowExtrema, bladeForces,
+    wallYPlus); does not touch executeInterval=1, physical discretization or dt.
+    """
+    pattern = r"(writeControl[ \t]+timeStep[ \t]*;[ \t]*writeInterval[ \t]+)80([ \t]*;)"
+    result, count = re.subn(pattern, lambda m: m.group(1) + str(windows) + m.group(2),
+                           source)
+    if count != 4:
+        raise RuntimeError(
+            f"controlDict: expected 4 original writeControl timeStep intervals=80, got {count}"
+        )
+    return result
+
+
+def inspect_frozen_dictionaries(windows=6):
+    """Zero-cost login-node dictionary test: no file writes, mesh tools or Slurm."""
+    reference = BASELINE.resolve(strict=True)
+    n = windows
+    t = n * DT
+    cf = (reference / "fluid/system/controlDict").read_text()
+    sf = (reference / "solid/seagrass.inp").read_text()
+    xf = (reference / "precice-config.xml").read_text()
+    control = replace_foam_write_intervals(replace_foam_end_time(cf, t), n)
+    deck = patch_deck(sf, t, n)
+    xml = replace_one(r'(<max-time value=")0\.02(")',
+                      rf'\g<1>{t:.12g}\2', xf, "preCICE max-time")
+    assert control != cf and deck != sf and xml != xf
+    assert "endTime 0.02;" not in control
+    assert control.count("writeInterval 6;") >= 4 if n == 6 else True
+    assert xml.count('limit="1e-05"') == 2
+    print("FROZEN_DICTIONARY_PATCH_PASS")
+    print("baseline:", reference)
+    print("new endTime:", t, "accepted windows:", n)
+    print("global + three functionObjects writeInterval substitutions: 4")
+    print("CalculiX dynamic and output frequency substitutions: PASS")
+    print("preCICE max-time and untouched 1e-5 force/displacement convergence: PASS")
+    print("No Slurm job submitted; no input files modified.")
 
 
 def patch_deck(source, end, steps):
@@ -121,11 +169,18 @@ def verify_normed(name, observed, reference, abs_tol, rel_tol):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--work", required=True, type=Path, help="NEW non-existing variant directory")
-    p.add_argument("--threads", type=int, choices=[1, 2, 4], required=True)
+    p.add_argument("--inspect-only", action="store_true", help="Read-only test actual 87186 dictionaries")
+    p.add_argument("--work", type=Path, help="NEW non-existing variant directory")
+    p.add_argument("--threads", type=int, choices=[1, 2, 4])
     p.add_argument("--windows", type=int, default=6, choices=[5, 6, 8, 10, 20, 24])
     p.add_argument("--iqn-reuse", type=int, choices=[5, 10, 15], default=5)
     args = p.parse_args()
+
+    if args.inspect_only:
+        inspect_frozen_dictionaries(args.windows)
+        return
+    if args.work is None or args.threads is None:
+        p.error("--work and --threads are required for a real FSI benchmark")
 
     if args.iqn_reuse != 5 and args.windows < 20:
         raise RuntimeError("IQN history variations require at least 20 windows")
@@ -205,9 +260,7 @@ def main():
 
         control = fluid / "system/controlDict"
         txt = control.read_text()
-        txt = replace_foam_end_time(txt, t)
-        txt = replace_one(r"(writeControl timeStep; writeInterval )80",
-                          rf"\g<1>{n}", txt, "controlDict writeInterval")
+        txt = replace_foam_write_intervals(replace_foam_end_time(txt, t), n)
         control.write_text(txt)
 
         deck = solid / "seagrass.inp"
