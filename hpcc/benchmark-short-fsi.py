@@ -98,8 +98,10 @@ def replace_foam_write_intervals(source, windows):
     return result
 
 
-def inspect_frozen_dictionaries(windows=6):
-    """Zero-cost login-node dictionary test: no file writes, mesh tools or Slurm."""
+def inspect_frozen_dictionaries(windows=6, iqn_reuse=5):
+    """Read-only, real-baseline OpenFOAM/CalculiX/preCICE patch verification."""
+    if iqn_reuse not in (5, 10, 15):
+        raise ValueError("Unexpected IQN history value")
     reference = BASELINE.resolve(strict=True)
     n = windows
     t = n * DT
@@ -110,17 +112,30 @@ def inspect_frozen_dictionaries(windows=6):
     deck = patch_deck(sf, t, n)
     xml = replace_one(r'(<max-time value=")0\.02(")',
                       rf'\g<1>{t:.12g}\2', xf, "preCICE max-time")
+    if iqn_reuse != 5:
+        xml = replace_one(r'(<time-windows-reused value=")5(")',
+                          rf'\g<1>{iqn_reuse}\2', xml, "IQN reuse")
+        if windows < 20:
+            raise RuntimeError("IQN history trials must use at least 20 windows")
+    else:
+        if len(re.findall(r'<time-windows-reused value="5"', xml)) != 1:
+            raise RuntimeError("Baseline IQN history does not equal 5")
     assert control != cf and deck != sf and xml != xf
     assert "endTime 0.02;" not in control
-    assert control.count("writeInterval 6;") >= 4 if n == 6 else True
-    assert xml.count('limit="1e-05"') == 2
+    if len(re.findall(rf"\bwriteInterval[ \t]+{n}[ \t]*;", control)) != 4:
+        raise RuntimeError(f"Expected 4 trial writeIntervals of {n}")
+    if xml.count('limit="1e-05"') != 2:
+        raise RuntimeError("Convergence controls changed")
+    if "coupling-scheme:parallel-implicit" not in xml:
+        raise RuntimeError("Implicit scheme missing")
     print("FROZEN_DICTIONARY_PATCH_PASS")
     print("baseline:", reference)
     print("new endTime:", t, "accepted windows:", n)
     print("global + three functionObjects writeInterval substitutions: 4")
     print("CalculiX dynamic and output frequency substitutions: PASS")
-    print("preCICE max-time and untouched 1e-5 force/displacement convergence: PASS")
+    print(f"preCICE max-time and IQN history reuse {iqn_reuse}; unchanged dual 1e-5 convergence: PASS")
     print("No Slurm job submitted; no input files modified.")
+
 
 
 def patch_deck(source, end, steps):
@@ -225,7 +240,7 @@ def main():
     args = p.parse_args()
 
     if args.inspect_only:
-        inspect_frozen_dictionaries(args.windows)
+        inspect_frozen_dictionaries(args.windows, args.iqn_reuse)
         return
     if args.work is None or args.threads is None:
         p.error("--work and --threads are required for a real FSI benchmark")
