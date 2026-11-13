@@ -19,7 +19,7 @@ r=json.load(open(sys.argv[1]))
 if (r.get("status") != "SHORT_FSI_PERFORMANCE_PASS" or
     r.get("threads") != 4 or r.get("windows") != 20 or r.get("iqn_reuse") != 15 or
     r.get("spooles_thread_evidence",{}).get("actual_spooles_threads") != 4):
-    raise SystemExit("STOP: trusted 88475 4-thread reference verification failed")
+    raise SystemExit("STOP: trusted 88550 IQN15 20-window reference verification failed")
 print("FROZEN_88550_IQN15_REFERENCE_PASS")
 CHECK4
 python3 -m py_compile "$SCRIPT"
