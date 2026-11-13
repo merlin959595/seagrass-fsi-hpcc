@@ -11,6 +11,7 @@ on:
       - 'hpcc/submit-iqn20-benchmark.sh'
       - 'hpcc/submit-optimized-full160.sh'
       - 'hpcc/submit-omp-scaling.sh'
+      - 'hpcc/submit-omp12-iqn15-20.sh'
       - 'hpcc/audit-thread1-88107.py'
       - '.github/workflows/check-short-benchmark.yml'
   workflow_dispatch:
@@ -26,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py
-          bash -n hpcc/submit-thread-benchmark.sh hpcc/submit-thread4-only.sh hpcc/submit-iqn20-benchmark.sh hpcc/submit-optimized-full160.sh hpcc/submit-omp-scaling.sh
+          bash -n hpcc/submit-thread-benchmark.sh hpcc/submit-thread4-only.sh hpcc/submit-iqn20-benchmark.sh hpcc/submit-optimized-full160.sh hpcc/submit-omp-scaling.sh hpcc/submit-omp12-iqn15-20.sh
           python3 - <<'PY'
           import importlib.util
           from pathlib import Path
