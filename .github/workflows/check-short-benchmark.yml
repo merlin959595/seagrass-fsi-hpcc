@@ -64,5 +64,25 @@ jobs:
               pass
           else:
               raise AssertionError("unexpected number of writeIntervals accepted")
+          from tempfile import TemporaryDirectory
+          with TemporaryDirectory() as temporary:
+              solid=Path(temporary)
+              spooles=solid/"spooles.out"
+              log=solid/"solid.log"
+              spooles.write_text("")
+              log.write_text("Using up to 1 cpu(s) for spooles\\n")
+              serial=b.verify_spooles_threads(solid,log,1)
+              assert serial["actual_spooles_threads"]==1
+              assert serial["verification"]=="empty_serial_spooles_out"
+              spooles.write_text("Using 2 threads\\n")
+              log.write_text("Using up to 2 cpu(s) for spooles\\n")
+              parallel=b.verify_spooles_threads(solid,log,2)
+              assert parallel["actual_spooles_threads"]==2
+              try:
+                  b.verify_spooles_threads(solid,log,1)
+              except RuntimeError:
+                  pass
+              else:
+                  raise AssertionError("SPOOLES mismatch accepted")
           print("SHORT_BENCHMARK_STATIC_TEST_PASS")
           PY
