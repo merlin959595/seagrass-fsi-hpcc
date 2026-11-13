@@ -86,5 +86,7 @@ jobs:
                   pass
               else:
                   raise AssertionError("SPOOLES mismatch accepted")
+          import inspect
+          assert "iqn_reuse" in inspect.signature(b.inspect_frozen_dictionaries).parameters
           print("SHORT_BENCHMARK_STATIC_TEST_PASS")
           PY
