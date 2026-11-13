@@ -139,6 +139,54 @@ def patch_deck(source, end, steps):
     return result
 
 
+def verify_spooles_threads(solid, solid_log, requested):
+    """Validate CalculiX thread cap and SPOOLES *actual* thread count.
+
+    In CalculiX, an empty spooles.out is the expected serial SPOOLES path.
+    Multi-threaded SPOOLES writes "Using N threads". It may choose fewer
+    than requested, which must be reported, not falsely called a failure.
+    """
+    solid_text = solid_log.read_text(errors="replace")
+    max_cpu = []
+    for pattern in (
+        r"Using\s+up\s+to\s+(\d+)\s+cpu\(s\)\s+for\s+spooles",
+        r"Using\s+(\d+)\s+cpu\s+for\s+spooles",
+    ):
+        max_cpu += [int(x) for x in re.findall(pattern, solid_text, flags=re.I)]
+    if not max_cpu or any(x != requested for x in max_cpu):
+        raise RuntimeError(
+            f"CalculiX spooles CPU setting mismatch: expected {requested}, "
+            f"found {sorted(set(max_cpu))}"
+        )
+    spooles = solid / "spooles.out"
+    if not spooles.is_file():
+        raise RuntimeError(f"Missing SPOOLES output file: {spooles}")
+    content = spooles.read_text(errors="replace")
+    actual = [int(x) for x in re.findall(r"Using\s+(\d+)\s+threads?\b",
+                                          content, flags=re.I)]
+    if not content.strip() and requested == 1:
+        return {"requested_threads": 1, "reported_max_spooles_cpus": 1,
+                "actual_spooles_threads": 1, "verification": "empty_serial_spooles_out"}
+    if not actual:
+        raise RuntimeError(
+            f"SPOOLES thread evidence ambiguous: requested {requested}, "
+            f"spooles.out nonempty={bool(content.strip())}, no Using N threads marker"
+        )
+    if any(t < 1 or t > requested for t in actual):
+        raise RuntimeError(
+            f"SPOOLES actual thread count outside 1..{requested}: "
+            f"{sorted(set(actual))}"
+        )
+    if len(set(actual)) != 1:
+        raise RuntimeError(
+            f"Non-constant SPOOLES actual threads across factorization: "
+            f"{sorted(set(actual))}"
+        )
+    return {"requested_threads": requested, "reported_max_spooles_cpus": requested,
+            "actual_spooles_threads": actual[0],
+            "verification": "explicit_spooles_out_thread_marker"}
+
+
 def snapshot_at(path, data, target):
     rows = path.read_text(errors="replace").splitlines()
     if len(rows) < 2:
@@ -324,13 +372,8 @@ def main():
         runner.solve(run, fluid, solid, state)
         if len(hits) != 1:
             raise RuntimeError(f"Expected exactly one intercepted solid launch, observed {len(hits)}")
-        # The launcher can silently override OMP; verify actual solver output as well.
-        spooles_text = (solid / "spooles.out").read_text(errors="replace")
-        if not re.search(rf"Using\s+{args.threads}\s+threads", spooles_text):
-            raise RuntimeError(f"SPOOLES did not confirm {args.threads} threads in spooles.out")
-        solid_text = (run / "solid.log").read_text(errors="replace")
-        if not re.search(rf"Using up to {args.threads} cpu\(s\) for spooles", solid_text):
-            raise RuntimeError(f"CalculiX did not report {args.threads} SPOOLES CPUs")
+        # Confirm CCX's own CPU setting plus SPOOLES actual serial/parallel evidence.
+        thread_evidence = verify_spooles_threads(solid, run / "solid.log", args.threads)
         gate_file = run / f"GATE-{n:04d}.json"
         gate = json.loads(gate_file.read_text())
         windows = json.loads((run / "WINDOWS.json").read_text())
@@ -366,7 +409,8 @@ def main():
             "iterations_per_window": sum(w["iterations"] for w in windows)/n,
             "tip_and_load_comparison": comparison,
             "participant_exit_codes": final_state["participant_exit_codes"],
-            "quality": quality, "mesh_recreated": False,
+            "quality": quality, "spooles_thread_evidence": thread_evidence,
+            "mesh_recreated": False,
             "restart_verified": False,
         }
         (work / "PERFORMANCE_RESULT.json").write_text(json.dumps(result, indent=2)+"\n")
