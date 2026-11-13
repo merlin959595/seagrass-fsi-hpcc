@@ -54,7 +54,7 @@ set -euo pipefail
 BASE="$HOME/hpcc-fsi"
 ROOT="$BASE/seagrass-implicit-20261111"
 SIF="$HOME/seagrass-fsi-ompi507-scotch-time.sif"
-WORK="$BASE/performance-iqn20-job-${SLURM_JOB_ID:?}"
+WORK="$BASE/performance-full160-job-${SLURM_JOB_ID:?}"
 SCRIPT="${FSI_FULL160_SCRIPT:?}"
 EXPECTED="${FSI_FULL160_SHA:?}"
 test ! -e "$WORK" || { echo "FATAL: existing work directory $WORK"; exit 21; }
@@ -120,7 +120,7 @@ echo "OPTIMIZED_FULL160_PASS"
 echo "OPTIMIZED_FULL160_EXIT=0"
 SBATCH
 JOB="$(sbatch --parsable -p cpu -N 1 -n 1 -c 12 --mem=24G -t 24:00:00 \
-  --export="ALL,FSI_IQN20_SCRIPT=$SNAPSHOT,FSI_IQN20_SHA=$SHA" \
+  --export="ALL,FSI_FULL160_SCRIPT=$SNAPSHOT,FSI_FULL160_SHA=$SHA" \
   -J fsi-full-opt -o "$LOGDIR/fsi-full-opt-%j.out" -e "$LOGDIR/fsi-full-opt-%j.err" "$BATCH")"
 echo "SUBMITTED_JOB_ID=$JOB"
 echo "RUN_DIR=$BASE/performance-full160-job-$JOB"
