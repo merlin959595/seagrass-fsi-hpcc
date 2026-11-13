@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent short, fully coupled, fail-closed seagrass FSI CPU benchmark.
+"""Independent, fully coupled, fail-closed seagrass FSI CPU benchmark and full 160-window gate.
 
 Uses the frozen controller for prepare/solve and injects ONLY:
   1. Shorter final time and final-output interval (in a NEW staged run),
@@ -121,7 +121,8 @@ def inspect_frozen_dictionaries(windows=6, iqn_reuse=5):
         if len(re.findall(r'<time-windows-reused value="5"', xml)) != 1:
             raise RuntimeError("Baseline IQN history does not equal 5")
     assert control != cf and deck != sf and xml != xf
-    assert "endTime 0.02;" not in control
+    if n != 160 and "endTime 0.02;" in control:
+        raise RuntimeError("Original full-run endTime not shortened")
     if len(re.findall(rf"\bwriteInterval[ \t]+{n}[ \t]*;", control)) != 4:
         raise RuntimeError(f"Expected 4 trial writeIntervals of {n}")
     if xml.count('limit="1e-05"') != 2:
@@ -235,7 +236,7 @@ def main():
     p.add_argument("--inspect-only", action="store_true", help="Read-only test actual 87186 dictionaries")
     p.add_argument("--work", type=Path, help="NEW non-existing variant directory")
     p.add_argument("--threads", type=int, choices=[1, 2, 4])
-    p.add_argument("--windows", type=int, default=6, choices=[5, 6, 8, 10, 20, 24])
+    p.add_argument("--windows", type=int, default=6, choices=[5, 6, 8, 10, 20, 24, 160])
     p.add_argument("--iqn-reuse", type=int, choices=[5, 10, 15], default=5)
     args = p.parse_args()
 
@@ -416,8 +417,9 @@ def main():
             "tip": verify_normed("tip_m", actual_tips, base_tips, 2e-6, .02),
             "loads": verify_normed("interface_load_N", actual_loads, base_loads, 5e-4, .02),
         }
+        verdict = "OPTIMIZED_0P02_FSI_PASS" if n == 160 else "SHORT_FSI_PERFORMANCE_PASS"
         result = {
-            "status": "SHORT_FSI_PERFORMANCE_PASS", "threads": args.threads,
+            "status": verdict, "threads": args.threads,
             "windows": n, "time_s": t, "iqn_reuse": args.iqn_reuse,
             "wall_s": gate["wall_s"], "s_per_window": gate["wall_s"]/n,
             "coupling_iterations": sum(w["iterations"] for w in windows),
@@ -429,11 +431,11 @@ def main():
             "restart_verified": False,
         }
         (work / "PERFORMANCE_RESULT.json").write_text(json.dumps(result, indent=2)+"\n")
-        state.update(status="SHORT_FSI_PERFORMANCE_PASS",
+        state.update(status=verdict,
                      performance_result=str(work / "PERFORMANCE_RESULT.json"),
                      checkpoint_restart="UNVERIFIED")
         save(state)
-        print("SHORT_FSI_PERFORMANCE_PASS", json.dumps(result, sort_keys=True), flush=True)
+        print(verdict, json.dumps(result, sort_keys=True), flush=True)
     except BaseException as exc:
         state.update(status="FAILED", reason=repr(exc))
         save(state)
