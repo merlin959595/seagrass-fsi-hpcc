@@ -9,6 +9,7 @@ on:
       - 'hpcc/submit-thread-benchmark.sh'
       - 'hpcc/submit-thread4-only.sh'
       - 'hpcc/submit-iqn20-benchmark.sh'
+      - 'hpcc/submit-optimized-full160.sh'
       - 'hpcc/audit-thread1-88107.py'
       - '.github/workflows/check-short-benchmark.yml'
   workflow_dispatch:
@@ -24,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py
-          bash -n hpcc/submit-thread-benchmark.sh hpcc/submit-thread4-only.sh hpcc/submit-iqn20-benchmark.sh
+          bash -n hpcc/submit-thread-benchmark.sh hpcc/submit-thread4-only.sh hpcc/submit-iqn20-benchmark.sh hpcc/submit-optimized-full160.sh
           python3 - <<'PY'
           import importlib.util
           from pathlib import Path
@@ -89,5 +90,11 @@ jobs:
                   raise AssertionError("SPOOLES mismatch accepted")
           import inspect
           assert "iqn_reuse" in inspect.signature(b.inspect_frozen_dictionaries).parameters
+          actualdict = b.replace_foam_write_intervals(b.replace_foam_end_time(real_control,0.02),160)
+          assert "endTime 0.02;" in actualdict
+          assert actualdict.count("writeInterval 160;") == 4
+          full_deck=b.patch_deck(source, 0.02, 160)
+          assert "*DYNAMIC,DIRECT\n0.000125, 0.02" in full_deck
+          assert full_deck.count("FREQUENCY=160") == 3
           print("SHORT_BENCHMARK_STATIC_TEST_PASS")
           PY
