@@ -27,7 +27,10 @@ python3 -m py_compile "$SCRIPT"
 python3 "$SCRIPT" --inspect-only --windows 6
 # Prevent accidental duplicate runs; do not cancel or alter any existing job.
 if command -v squeue >/dev/null 2>&1; then
-  ACTIVE="$(squeue -h -u "$USER" -n fsi-omp-scale,fsi-omp-bench,fsi-omp-4only -o '%i %T' 2>/dev/null || true)"
+  if ! ACTIVE="$(squeue -h -u "$USER" -n fsi-omp-scale,fsi-omp-bench,fsi-omp-4only -o '%i %T' 2>&1)"; then
+    echo "STOP: Slurm status unavailable: $ACTIVE"
+    exit 43
+  fi
   if [[ -n "$ACTIVE" ]]; then
     echo "REFUSE_DUPLICATE: existing FSI thread benchmark job(s):"
     printf '%s\n' "$ACTIVE"
@@ -38,6 +41,14 @@ else
   exit 42
 fi
 if test -s "$SIF.sha256"; then sha256sum -c "$SIF.sha256"; fi
+SHA="$(sha256sum "$SCRIPT" | awk '{print $1}')"
+SNAPSHOT="$BASE/benchmark-omp-scale-${SHA:0:16}.py"
+if [ -f "$SNAPSHOT" ]; then
+  cmp -s "$SCRIPT" "$SNAPSHOT" || { echo "STOP: frozen script hash conflict"; exit 44; }
+else
+  cp "$SCRIPT" "$SNAPSHOT"
+  chmod a-w "$SNAPSHOT"
+fi
 BATCH="$(mktemp "$BASE/fsi-omp-scale.XXXXXXXX.sbatch")"
 cat >"$BATCH" <<'SBATCH'
 #!/usr/bin/env bash
@@ -45,8 +56,10 @@ set -euo pipefail
 BASE="$HOME/hpcc-fsi"
 ROOT="$BASE/seagrass-implicit-20261111"
 SIF="$HOME/seagrass-fsi-ompi507-scotch-time.sif"
-WORK="$BASE/performance-thread4-job-${SLURM_JOB_ID:?}"
-SCRIPT="$BASE/benchmark-short-fsi.py"
+WORK="$BASE/performance-omp-scale-job-${SLURM_JOB_ID:?}"
+SCRIPT="${FSI_OMP_SCALE_SCRIPT:?}"
+EXPECTED="${FSI_OMP_SCALE_SHA:?}"
+test "$(sha256sum "$SCRIPT" | awk '{print $1}')" = "$EXPECTED" || { echo "STOP: frozen script hash changed"; exit 45; }
 test ! -e "$WORK" || { echo "FATAL: existing workdir $WORK"; exit 21; }
 mkdir "$WORK"
 echo "THREAD_BENCHMARK_START job=$SLURM_JOB_ID host=$(hostname) time=$(date -Is)"
@@ -100,8 +113,9 @@ echo "OMP_SCALING_ALL_VARIANTS_PASS"
 echo "OMP_SCALING_EXIT=0"
 SBATCH
 JOB="$(sbatch --parsable -p cpu -N 1 -n 1 -c 24 --mem=48G -t 04:00:00 \
+  --export="ALL,FSI_OMP_SCALE_SCRIPT=$SNAPSHOT,FSI_OMP_SCALE_SHA=$SHA" \
   -J fsi-omp-scale -o "$LOGDIR/fsi-omp-scale-%j.out" -e "$LOGDIR/fsi-omp-scale-%j.err" "$BATCH")"
 echo "SUBMITTED_JOB_ID=$JOB"
-echo "RUN_DIR=$BASE/performance-thread4-job-$JOB"
+echo "RUN_DIR=$BASE/performance-omp-scale-job-$JOB"
 echo "STDOUT=$LOGDIR/fsi-omp-scale-$JOB.out"
 echo "STDERR=$LOGDIR/fsi-omp-scale-$JOB.err"
