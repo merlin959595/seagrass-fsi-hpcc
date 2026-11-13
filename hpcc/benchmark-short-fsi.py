@@ -235,7 +235,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--inspect-only", action="store_true", help="Read-only test actual 87186 dictionaries")
     p.add_argument("--work", type=Path, help="NEW non-existing variant directory")
-    p.add_argument("--threads", type=int, choices=[1, 2, 4])
+    p.add_argument("--threads", type=int, choices=[1, 2, 4, 8, 12])
     p.add_argument("--windows", type=int, default=6, choices=[5, 6, 8, 10, 20, 24, 160])
     p.add_argument("--iqn-reuse", type=int, choices=[5, 10, 15], default=5)
     args = p.parse_args()
