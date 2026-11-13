@@ -7,6 +7,8 @@ on:
     paths:
       - 'hpcc/benchmark-short-fsi.py'
       - 'hpcc/submit-thread-benchmark.sh'
+      - 'hpcc/submit-thread4-only.sh'
+      - 'hpcc/audit-thread1-88107.py'
       - '.github/workflows/check-short-benchmark.yml'
   workflow_dispatch:
 
@@ -20,8 +22,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile hpcc/benchmark-short-fsi.py
-          bash -n hpcc/submit-thread-benchmark.sh
+          python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py
+          bash -n hpcc/submit-thread-benchmark.sh hpcc/submit-thread4-only.sh
           python3 - <<'PY'
           import importlib.util
           from pathlib import Path
