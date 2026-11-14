@@ -114,8 +114,8 @@ def source_for(base,stage,previous_job):
 
 def choose_windows(stage,max_windows,seconds_per_window):
     if stage==0:
-        if max_windows!=220:raise RuntimeError("First segment must be 220 windows to align next output at 0.03s")
-        return 220
+        if max_windows!=240:raise RuntimeError("First segment must be 240 windows to align end output on 80-step interval")
+        return 240
     if not math.isfinite(seconds_per_window) or seconds_per_window<=0:
         raise RuntimeError("Missing prior measured wall clock throughput")
     # 60h of estimated wall with 35% slowdown reserve and <=66h hard watchdog.
@@ -399,10 +399,10 @@ def run(base,stage,previous_job,work,max_windows,timeout):
         for f in handles.values():f.close()
 
 def self_test():
-    assert choose_windows(0,220,180)==220
+    assert choose_windows(0,240,180)==240
     assert choose_windows(1,960,150)==960
     assert choose_windows(1,960,300)==(int((60*3600)/(300*1.35))//80)*80
-    assert round((.0025+220*DT)/DT)==240
+    assert round((.0025+240*DT)/DT)==260
     source="*RESTART,READ,STEP=1\n*STEP\n*DYNAMIC,DIRECT\n0.000125, 0.00125\n*RESTART,WRITE,FREQUENCY=1,OVERLAY\n*END STEP\n"
     changed=exact(r"(?im)^(\s*\*RESTART\s*,\s*READ\s*,\s*STEP=)\d+",
                   lambda m:m.group(1)+"2",source,"restart self-test")
@@ -425,7 +425,7 @@ def main():
     if a.stage<0:raise RuntimeError("Invalid stage")
     if a.run==a.preflight_only:
         p.error("choose exactly one --run or --preflight-only")
-    if a.stage==0 and a.max_windows!=220:
+    if a.stage==0 and a.max_windows!=240:
         p.error("Initial segment fixed at 220 windows")
     base=a.base.expanduser().resolve(strict=True)
     if a.preflight_only:
