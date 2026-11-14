@@ -25,6 +25,7 @@ on:
       - 'hpcc/g1b-g2-parallel-triage.py'
       - 'hpcc/g1-b-90873-posthoc-audit.py'
       - 'hpcc/g1-b-native-final-mesh.py'
+      - 'hpcc/submit-g1-b-native-final-mesh.sh'
       - 'hpcc/submit-g1-b-real-restart10.sh'
       - '.github/workflows/check-short-benchmark.yml'
   workflow_dispatch:
@@ -51,6 +52,7 @@ jobs:
           python3 hpcc/g3-offline-quality-monitor.py --self-test
           python3 hpcc/g1b-g2-parallel-triage.py --self-test
           bash -n hpcc/submit-g1-b-real-restart10.sh
+          bash -n hpcc/submit-g1-b-native-final-mesh.sh
           bash -n hpcc/submit-g1-restart-write10.sh
           bash -n hpcc/submit-thread-benchmark.sh hpcc/submit-thread4-only.sh hpcc/submit-iqn20-benchmark.sh hpcc/submit-optimized-full160.sh hpcc/submit-omp-scaling.sh hpcc/submit-omp12-iqn15-20.sh
           python3 - <<'PY'
