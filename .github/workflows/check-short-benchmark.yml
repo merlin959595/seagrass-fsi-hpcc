@@ -28,6 +28,7 @@ on:
       - 'hpcc/submit-g1-b-native-final-mesh.sh'
       - 'hpcc/run-fsi-long-chain-segment.py'
       - 'hpcc/submit-fsi-long-chain.sh'
+      - 'hpcc/g2-structural-solver-backend-audit.sh'
       - 'hpcc/submit-g1-b-real-restart10.sh'
       - '.github/workflows/check-short-benchmark.yml'
   workflow_dispatch:
@@ -57,6 +58,7 @@ jobs:
           bash -n hpcc/submit-g1-b-real-restart10.sh
           bash -n hpcc/submit-g1-b-native-final-mesh.sh
           bash -n hpcc/submit-fsi-long-chain.sh
+          bash -n hpcc/g2-structural-solver-backend-audit.sh
           bash -n hpcc/submit-g1-restart-write10.sh
           bash -n hpcc/submit-thread-benchmark.sh hpcc/submit-thread4-only.sh hpcc/submit-iqn20-benchmark.sh hpcc/submit-optimized-full160.sh hpcc/submit-omp-scaling.sh hpcc/submit-omp12-iqn15-20.sh
           python3 - <<'PY'
