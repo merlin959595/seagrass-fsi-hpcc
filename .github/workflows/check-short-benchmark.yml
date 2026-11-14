@@ -17,6 +17,7 @@ on:
       - 'hpcc/g1-readiness-readonly.py'
       - 'hpcc/g1-restart-blocker-audit.py'
       - 'hpcc/submit-g1-restart-write10.sh'
+      - 'hpcc/g2-g3-offline-gates.py'
       - '.github/workflows/check-short-benchmark.yml'
   workflow_dispatch:
 
@@ -30,10 +31,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py hpcc/g0-readonly-audit.py hpcc/g1-readiness-readonly.py hpcc/g1-restart-blocker-audit.py
+          python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py hpcc/g0-readonly-audit.py hpcc/g1-readiness-readonly.py hpcc/g1-restart-blocker-audit.py hpcc/g2-g3-offline-gates.py
           python3 hpcc/g0-readonly-audit.py --self-test
           python3 hpcc/g1-readiness-readonly.py --self-test
           python3 hpcc/g1-restart-blocker-audit.py --self-test
+          python3 hpcc/g2-g3-offline-gates.py --self-test
           bash -n hpcc/submit-g1-restart-write10.sh
           bash -n hpcc/submit-thread-benchmark.sh hpcc/submit-thread4-only.sh hpcc/submit-iqn20-benchmark.sh hpcc/submit-optimized-full160.sh hpcc/submit-omp-scaling.sh hpcc/submit-omp12-iqn15-20.sh
           python3 - <<'PY'
