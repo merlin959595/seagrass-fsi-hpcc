@@ -449,11 +449,11 @@ def self_test():
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         f=Path(td)/"watch.log"
-        f.write_text("# Time Displacement0 Displacement1 Displacement2\n"
+        f.write_text("Time Displacement0 Displacement1 Displacement2\n"
                      "0.00125 0.1 0.2 0.3\n")
         v=read_watch(f,"Displacement")
         assert len(v)==1 and v[0][1]==[.1,.2,.3]
-        f.write_text("# Time Displacement0 Displacement1 Displacement2\n"
+        f.write_text("Time Displacement0 Displacement1 Displacement2\n"
                      "0.00125 nan 0.2 0.3\n")
         try:read_watch(f,"Displacement")
         except RuntimeError:pass
