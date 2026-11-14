@@ -86,7 +86,7 @@ def make_restart_precice_dict(config):
     Preserve existing fluid physical properties, solver type and interface
     fields. This does not validate the custom solid restart semantics.
     """
-    headers=list(re.finditer(r"(?m)^[ \t]*FSI[ \t]*\{", config))
+    headers=list(re.finditer(r"(?m)^[ \t]*FSI[ \t]*(?:\r?\n[ \t]*)?\{", config))
     if len(headers)!=1:
         raise ValueError(f"expected exactly one existing FSI block, found {len(headers)}")
     opened=headers[0].end()-1
