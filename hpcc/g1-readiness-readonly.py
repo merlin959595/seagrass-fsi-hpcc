@@ -57,7 +57,7 @@ def key_config_lines(path):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--audit", type=Path, required=True)
+    p.add_argument("--audit", type=Path)
     p.add_argument("--self-test", action="store_true")
     args=p.parse_args()
     if args.self_test:
@@ -66,6 +66,8 @@ def main():
         assert not KEYWORDS.search("no relevant content")
         print("G1_READINESS_STATIC_SELF_TEST_PASS")
         return
+    if args.audit is None:
+        p.error("--audit is required unless --self-test")
     a=json.loads(args.audit.expanduser().read_text())
     if a.get("schema")!="seagrass-fsi-g0-audit-v1" or a.get("mode")!="READ_ONLY_NO_SLURM_NO_SOLVER":
         raise SystemExit("STOP: G0 JSON schema/mode mismatch")
