@@ -248,10 +248,10 @@ def compare_trajectory(run,reference):
         max_t=max(t for t,_ in actual)
         if abs(max_t-OFFSET)<1e-9:
             time_mode="local"
-            shift=0.
+            shift=OFFSET
         elif abs(max_t-FINAL)<1e-9:
             time_mode="absolute"
-            shift=OFFSET
+            shift=0.
         else:
             raise RuntimeError(
                 f"{label} last watchpoint time={max_t:.9g}; "
@@ -275,26 +275,45 @@ def compare_trajectory(run,reference):
 
 
 def check_iterations(path):
+    """preCICE >= 3: log columns are TimeWindow TotalIterations Iterations
+    Convergence QNColumns DeletedQNColumns DroppedQNColumns.
+    Column #2 is cumulative, column #3 is the PER-WINDOW count.
+    """
     if not path.is_file():
         raise RuntimeError("Missing new preCICE iterations log")
+    lines=[line.strip() for line in path.read_text(errors="replace").splitlines()
+           if line.strip()]
+    header=("TimeWindow","TotalIterations","Iterations","Convergence",
+            "QNColumns","DeletedQNColumns","DroppedQNColumns")
+    if not lines or tuple(lines[0].split())!=header:
+        raise RuntimeError(f"Unexpected preCICE iterations log header in {path}: "
+                           f"{lines[0] if lines else '<empty>'}")
+    if len(lines)!=N+1:
+        raise RuntimeError(f"Expected exactly {N} resumed windows, got {len(lines)-1}")
     rows=[]
-    for ln in path.read_text(errors="replace").splitlines()[1:]:
-        bits=ln.split()
-        if len(bits)!=7:
-            continue
+    running_total=0
+    for index,line in enumerate(lines[1:],1):
         try:
-            ints=list(map(int,bits))
-        except ValueError:
-            continue
-        rows.append(ints)
-    if len(rows)!=N:
-        raise RuntimeError(f"Expected exactly {N} completed new preCICE time windows, got {len(rows)}")
-    if [r[0] for r in rows]!=list(range(1,N+1)):
-        raise RuntimeError("preCICE iteration window indices not sequential")
-    if any(r[1]<1 or r[1]>50 for r in rows):
-        raise RuntimeError("preCICE coupling iterations outside 1..50")
+            row=[int(v) for v in line.split()]
+        except ValueError as ex:
+            raise RuntimeError(f"Invalid preCICE iterations values at window {index}: {line}") from ex
+        if len(row)!=7:
+            raise RuntimeError(f"Unexpected preCICE log column count at window {index}")
+        tw,total,iterations,converged,qn,deleted,dropped=row
+        if tw!=index:
+            raise RuntimeError(f"preCICE resumed windows not sequential at {index}: {tw}")
+        if not 1<=iterations<=50:
+            raise RuntimeError(f"Window {index} actual iterations outside 1..50: {iterations}")
+        if converged!=1:
+            raise RuntimeError(f"Window {index} not converged according to preCICE")
+        running_total+=iterations
+        if total!=running_total:
+            raise RuntimeError(f"Window {index} cumulative iteration mismatch: "
+                               f"{total} != {running_total}")
+        if min(qn,deleted,dropped)<0:
+            raise RuntimeError(f"Negative quasi-Newton column statistics at window {index}")
+        rows.append(row)
     return rows
-
 
 def run_case(base,proposal,work,max_seconds):
     if not os.environ.get("SLURM_JOB_ID"):
@@ -404,8 +423,8 @@ def run_case(base,proposal,work,max_seconds):
             "resume_absolute_time_s":OFFSET,
             "final_absolute_time_s":FINAL,
             "participant_exit_codes":exits,
-            "coupling_iterations_total":sum(row[1] for row in rows),
-            "coupling_iterations_per_resumed_window":[row[1] for row in rows],
+            "coupling_iterations_total":sum(row[2] for row in rows),
+            "coupling_iterations_per_resumed_window":[row[2] for row in rows],
             "fresh_structural_rout_sha256":digest(rout),
             "fresh_structural_kinematic_state_sha256":digest(solid/"kinematic_state.bin"),
             "fluid_terminal_mesh_check":"PASS",
@@ -458,6 +477,28 @@ def self_test():
         try:read_watch(f,"Displacement")
         except RuntimeError:pass
         else:raise AssertionError("Non-finite watchpoint accepted")
+    # Regression for job 90873: TotalIterations must NOT be checked against
+    # the per-window max of 50, and Convergence must be exactly 1.
+    with tempfile.TemporaryDirectory() as td:
+        f=Path(td)/"iterations.log"
+        head=("TimeWindow TotalIterations Iterations Convergence "
+              "QNColumns DeletedQNColumns DroppedQNColumns\n")
+        f.write_text(head+"".join(f"{i} {i*29} 29 1 14 0 0\n"
+                                 for i in range(1,11)))
+        result=check_iterations(f)
+        assert len(result)==10
+        assert result[-1][1]==290 and result[-1][2]==29
+        f.write_text(head+"".join(f"{i} {i*29} 29 {0 if i==10 else 1} 14 0 0\n"
+                                 for i in range(1,11)))
+        try:check_iterations(f)
+        except RuntimeError:pass
+        else:raise AssertionError("Unconverged last window accepted")
+    # Distinguish physical absolute and new-session local time grids.
+    for local in (True,False):
+        abs_target=OFFSET+5*DT
+        offset=OFFSET if local else 0.0
+        assert math.isclose(abs_target-offset,
+                            (5*DT if local else abs_target),abs_tol=1e-12)
     assert path_inside(Path("/tmp/a/b"),Path("/tmp/a"))
     assert not path_inside(Path("/tmp/c"),Path("/tmp/a"))
     print("G1_B_REAL_RESTART_STATIC_SELF_TEST_PASS")
