@@ -189,10 +189,19 @@ def stage_inputs(base,stage,previous_job,work,max_windows):
     conf=exact(r"(?m)(?<![A-Za-z0-9_])(endTime\s+)([-+.\deE]+)(\s*;)",
                lambda m:m.group(1)+f"{end:.12g}"+m.group(3),
                conf,"fluid absolute endTime")
-    # End at 80-step aligned absolute time, ensuring the final distributed
-    # time field is saved and earlier outputs do not consume disk indefinitely.
+    # A restarted timeStep counter may continue its absolute timeIndex:
+    # at 0.0025 s start index is 20; 240 new steps end at index 260.
+    # 80 does NOT divide 260. Use a divisor of the absolute END index
+    # to guarantee a written final checkpoint without relying on
+    # undocumented endTime forced writes.
+    end_step=round(end/DT)
+    if abs(end/DT-end_step)>1e-7:
+        raise RuntimeError("End time not on exact dt index")
+    write_every=math.gcd(end_step,80)
+    if write_every<1:
+        raise RuntimeError("Failed to select safe write interval")
     conf,changes=re.subn(r"(writeControl\s+timeStep\s*;\s*writeInterval\s+)\d+(\s*;)",
-                         r"\g<1>80\2",conf)
+                         lambda m:m.group(1)+str(write_every)+m.group(2),conf)
     if changes!=4:raise RuntimeError(f"Expected 4 writeIntervals; got {changes}")
     conf=exact(r"(purgeWrite\s+)\d+(\s*;)",r"\g<1>2\2",conf,"fluid purgeWrite")
     control.write_text(conf)
@@ -220,6 +229,7 @@ def stage_inputs(base,stage,previous_job,work,max_windows):
         "no_physical_parameters_modified":True,
         "mpi_fluid":8,"omp_solid":4,"iqn_reuse":15,
         "dt_s":DT,"dual_convergence_tol":1e-5,
+        "fluid_write_interval_steps":write_every,
         "origin_90873_untouched":True
     }
     jwrite(work/"FSI_SEGMENT_STAGE.json",meta)
@@ -403,6 +413,7 @@ def self_test():
     assert choose_windows(1,960,150)==960
     assert choose_windows(1,960,300)==(int((60*3600)/(300*1.35))//80)*80
     assert round((.0025+240*DT)/DT)==260
+    assert math.gcd(260,80)==20
     source="*RESTART,READ,STEP=1\n*STEP\n*DYNAMIC,DIRECT\n0.000125, 0.00125\n*RESTART,WRITE,FREQUENCY=1,OVERLAY\n*END STEP\n"
     changed=exact(r"(?im)^(\s*\*RESTART\s*,\s*READ\s*,\s*STEP=)\d+",
                   lambda m:m.group(1)+"2",source,"restart self-test")
