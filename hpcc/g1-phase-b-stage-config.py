@@ -81,14 +81,44 @@ def make_restart_fluid(control):
 
 
 def make_restart_precice_dict(config):
-    # Adapter FSI restartFromDeformed is documented default true, but
-    # interaction with custom solid reference coords still requires validation.
-    if re.search(r"\brestartFromDeformed\b",config):
-        raise ValueError("expected implicit default; existing override needs manual review")
-    if re.search(r"(?m)^\s*FSI\s*\{",config):
-        raise ValueError("FSI block already exists; manual edit required")
-    return config.rstrip() + "\n\nFSI\n{\n    restartFromDeformed true;\n}\n"
+    """Add one explicit restart option INSIDE the existing FSI block.
 
+    Preserve existing fluid physical properties, solver type and interface
+    fields. This does not validate the custom solid restart semantics.
+    """
+    headers=list(re.finditer(r"(?m)^[ \t]*FSI[ \t]*\{", config))
+    if len(headers)!=1:
+        raise ValueError(f"expected exactly one existing FSI block, found {len(headers)}")
+    opened=headers[0].end()-1
+    depth=0
+    close=None
+    for index in range(opened,len(config)):
+        if config[index]=="{":
+            depth+=1
+        elif config[index]=="}":
+            depth-=1
+            if depth==0:
+                close=index
+                break
+    if close is None:
+        raise ValueError("unbalanced FSI block; refusing to modify")
+
+    # Ignore // comments while searching for live assignments.
+    def options(text):
+        uncommented="\n".join(line.split("//",1)[0]
+                              for line in text.splitlines())
+        return list(re.finditer(r"\brestartFromDeformed\s+(\w+)\s*;",uncommented))
+
+    all_opts=options(config)
+    fsi_opts=options(config[opened+1:close])
+    if all_opts:
+        if len(all_opts)!=1 or len(fsi_opts)!=1 or all_opts[0].group(1)!="true":
+            raise ValueError("conflicting, duplicate, or misplaced restartFromDeformed option")
+        return config
+
+    return (config[:opened+1]
+            + "\n    restartFromDeformed true;"
+            + config[opened+1:])
 
 def safe_json(path):
     return json.loads(path.read_text())
@@ -239,8 +269,39 @@ def main():
         new=make_restart_fluid(
             "startFrom startTime; startTime 0; endTime 0.00125; deltaT 0.000125;\n")
         assert "startFrom latestTime;" in new and "endTime 0.0025;" in new
-        assert "restartFromDeformed true;" in make_restart_precice_dict(
-            "FoamFile{}\ninterfaces{}\n")
+        actual_precice_dict = (
+            "FoamFile { version 2.0; }\n"
+            "preciceConfig \"../precice-config.xml\";\n"
+            "FSI\n{\n    solverType incompressible;\n"
+            "    // Keep these physical values\n"
+            "    rho rho [1 -3 0 0 0 0 0] 1000;\n"
+            "}\n"
+            "interfaces\n{\n"
+            "    DisplacementInterface { readData (Displacement); }\n"
+            "}\n"
+        )
+        edited = make_restart_precice_dict(actual_precice_dict)
+        assert edited.count("FSI\n{")==1
+        assert edited.count("restartFromDeformed true;")==1
+        assert "solverType incompressible;" in edited
+        assert "rho rho [1 -3 0 0 0 0 0] 1000;" in edited
+        assert "DisplacementInterface { readData (Displacement); }" in edited
+        assert make_restart_precice_dict(edited) == edited
+        inline = make_restart_precice_dict("FSI { solverType incompressible; }\n")
+        assert "restartFromDeformed true;" in inline
+        assert "solverType incompressible;" in inline
+        for invalid in (
+            "FoamFile{}\ninterfaces{}\n",
+            "FSI {}\nFSI {}\n",
+            "FSI { restartFromDeformed false; }\n",
+            "FSI { restartFromDeformed true; restartFromDeformed true; }\n",
+        ):
+            try:
+                make_restart_precice_dict(invalid)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"Unsafe FSI dictionary accepted: {invalid!r}")
         print("G1_B_CONFIG_STAGE_STATIC_SELF_TEST_PASS")
         return
     if a.out is None:
