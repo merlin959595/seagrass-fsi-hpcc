@@ -24,12 +24,19 @@ def split_cpus(cpus):
     assert not(set(fluid)&set(solid))
     return fluid,solid
 
+def resolve_cwd(cwd):
+    return Path(cwd).resolve() if cwd is not None else Path.cwd()
+
 def self_test():
     a,b=split_cpus(range(16,28))
     assert a==list(range(16,24)) and b==list(range(24,28))
     try:split_cpus(range(11))
     except RuntimeError:pass
     else:raise AssertionError("Accepted fewer than 12 permitted CPUs")
+    # Regression for failed job 91019: subprocess.run() leaves cwd=None.
+    # The exact bug was Path(None) during initial native checkMesh.
+    assert resolve_cwd(None)==Path.cwd()
+    assert resolve_cwd(Path("/tmp/a"))==Path("/tmp/a")
     print("G2_AFFINITY_ISOLATION_SELF_TEST_PASS")
 
 def main():
@@ -70,7 +77,11 @@ def main():
             "affinity_candidate_only":True,
             "solver_changes":False,"model_changes":False}
     def wrapper(cmd,*pos,**kw):
-        cwd=Path(kw.get("cwd","/")).resolve()
+        # subprocess.run uses Popen(..., cwd=None) when no cwd was supplied.
+        # Never evaluate Path(None); the unmodified benchmark calls utilities
+        # with both explicit cwd and no cwd.
+        cwd_value=kw.get("cwd")
+        cwd=resolve_cwd(cwd_value)
         components=[str(x) for x in cmd]
         name=None
         if cwd.name=="fluid" and cwd.parent.name=="hpcc-implicit-002":
