@@ -155,6 +155,24 @@ def patch_deck(source, end, steps):
     return result
 
 
+def patch_structural_restart_frequency(source):
+    """G1 phase-A only; CCX *RESTART frequency counts *STEP, not output increment.
+
+    Output-card FREQUENCY values have different semantics; leave them alone.
+    """
+    if len(re.findall(r"(?im)^\s*\*STEP\b", source)) != 1:
+        raise RuntimeError("G1 requires exactly one CalculiX *STEP")
+    if len(re.findall(r"(?im)^\s*\*END\s+STEP\b", source)) != 1:
+        raise RuntimeError("G1 requires exactly one CalculiX *END STEP")
+    pattern = r"(?im)^(\s*\*RESTART\s*,\s*WRITE\s*,\s*FREQUENCY=)\d+(\s*,\s*OVERLAY\s*)$"
+    result, count = re.subn(pattern, lambda m: m.group(1) + "1" + m.group(2), source)
+    if count != 1:
+        raise RuntimeError(f"G1 expected one exact *RESTART WRITE OVERLAY, got {count}")
+    if re.search(r"(?im)^\s*\*RESTART\s*,\s*READ", result):
+        raise RuntimeError("G1 phase A cannot have *RESTART,READ")
+    return result
+
+
 def verify_spooles_threads(solid, solid_log, requested):
     """Validate CalculiX thread cap and SPOOLES *actual* thread count.
 
@@ -234,14 +252,23 @@ def verify_normed(name, observed, reference, abs_tol, rel_tol):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--inspect-only", action="store_true", help="Read-only test actual 87186 dictionaries")
+    p.add_argument("--g1-restart-write-step1", action="store_true",
+                   help="Isolated G1 phase A: single STEP restart frequency=1; confirm .rout, NOT full restart")
     p.add_argument("--work", type=Path, help="NEW non-existing variant directory")
     p.add_argument("--threads", type=int, choices=[1, 2, 4, 8, 12])
     p.add_argument("--windows", type=int, default=6, choices=[5, 6, 8, 10, 20, 24, 160])
     p.add_argument("--iqn-reuse", type=int, choices=[5, 10, 15], default=5)
     args = p.parse_args()
 
+    if args.g1_restart_write_step1 and (args.windows, args.iqn_reuse, args.threads) != (10, 5, 4):
+        raise RuntimeError("G1 phase A permits only 10 windows / IQN5 / 4 OMP")
     if args.inspect_only:
         inspect_frozen_dictionaries(args.windows, args.iqn_reuse)
+        if args.g1_restart_write_step1:
+            input_deck = (BASELINE / "solid/seagrass.inp").read_text()
+            trial = patch_structural_restart_frequency(patch_deck(input_deck, 10 * DT, 10))
+            assert re.search(r"(?im)^\s*\*RESTART,WRITE,FREQUENCY=1,OVERLAY", trial)
+            print("G1_STEP_FREQUENCY_STATIC_PREFLIGHT_PASS")
         return
     if args.work is None or args.threads is None:
         p.error("--work and --threads are required for a real FSI benchmark")
@@ -328,7 +355,11 @@ def main():
         control.write_text(txt)
 
         deck = solid / "seagrass.inp"
-        deck.write_text(patch_deck(deck.read_text(), t, n))
+        patched_deck = patch_deck(deck.read_text(), t, n)
+        if args.g1_restart_write_step1:
+            patched_deck = patch_structural_restart_frequency(patched_deck)
+            print("G1_SINGLE_STEP_RESTART_FREQUENCY_ONE_CONFIGURED", flush=True)
+        deck.write_text(patched_deck)
 
         # Log every permitted mutation, including original and new content hashes.
         mutated = {}
@@ -339,9 +370,12 @@ def main():
         variant = {
             "threads": args.threads, "windows": n, "t_end_s": t,
             "iqn_reuse": args.iqn_reuse, "mutations": mutated,
+            "g1_restart_write_step1": args.g1_restart_write_step1,
             "frozen_input_sha256": pre_patch_hashes, "original_baseline": str(reference),
             "notes": "Only final time, output frequency, and optional IQN history changed in staged copies. "
-                     "Only solid OMP_NUM_THREADS changed at process launch.",
+                     "Only solid OMP_NUM_THREADS changed at process launch."
+                     + (" G1 phase-A explicitly sets CCX *RESTART,WRITE,FREQUENCY=1."
+                        if args.g1_restart_write_step1 else ""),
         }
         (run / "PERFORMANCE_VARIANT.json").write_text(json.dumps(variant, indent=2) + "\n")
         binding_file = run / "INPUT_BINDING.json"
@@ -431,6 +465,27 @@ def main():
             "restart_verified": False,
         }
         (work / "PERFORMANCE_RESULT.json").write_text(json.dumps(result, indent=2)+"\n")
+        if args.g1_restart_write_step1:
+            rout = solid / "seagrass.rout"
+            if not rout.is_file() or rout.stat().st_size < 128:
+                raise RuntimeError("G1_STRUCTURAL_RESTART_BINARY_NOT_CREATED: "
+                                   "custom CalculiX did not produce nonempty seagrass.rout; "
+                                   "do not attempt phase-B restart")
+            if not (solid / "kinematic_state.bin").is_file():
+                raise RuntimeError("G1_STRUCTURAL_KINEMATIC_STATE_MISSING")
+            evidence = {
+                "status": "G1_PHASE_A_RESTART_FILE_PRESENT_NOT_RESTART_VERIFIED",
+                "run": str(run), "windows": n, "accepted_time_s": t,
+                "participant_exit_codes": final_state["participant_exit_codes"],
+                "solid_restart_file": str(rout),
+                "solid_restart_size_bytes": rout.stat().st_size,
+                "solid_restart_sha256": digest(rout),
+                "solid_kinematic_state": str(solid / "kinematic_state.bin"),
+                "restart_verified": False,
+            }
+            (work / "G1_RESTART_WRITE_EVIDENCE.json").write_text(
+                json.dumps(evidence, indent=2) + "\n")
+            print("G1_PHASE_A_SOLID_RESTART_FILE_CREATED_NOT_RESUME_VERIFIED", flush=True)
         state.update(status=verdict,
                      performance_result=str(work / "PERFORMANCE_RESULT.json"),
                      checkpoint_restart="UNVERIFIED")
