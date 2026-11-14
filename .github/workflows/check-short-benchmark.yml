@@ -23,6 +23,7 @@ on:
       - 'hpcc/g2-profile-evidence.py'
       - 'hpcc/g3-offline-quality-monitor.py'
       - 'hpcc/g1b-g2-parallel-triage.py'
+      - 'hpcc/g1-b-90873-posthoc-audit.py'
       - 'hpcc/submit-g1-b-real-restart10.sh'
       - '.github/workflows/check-short-benchmark.yml'
   workflow_dispatch:
@@ -37,7 +38,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py hpcc/g0-readonly-audit.py hpcc/g1-readiness-readonly.py hpcc/g1-restart-blocker-audit.py hpcc/g2-g3-offline-gates.py hpcc/g1-phase-b-stage-config.py hpcc/g1-b-real-restart.py hpcc/g2-profile-evidence.py hpcc/g3-offline-quality-monitor.py hpcc/g1b-g2-parallel-triage.py
+          python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py hpcc/g0-readonly-audit.py hpcc/g1-readiness-readonly.py hpcc/g1-restart-blocker-audit.py hpcc/g2-g3-offline-gates.py hpcc/g1-phase-b-stage-config.py hpcc/g1-b-real-restart.py hpcc/g2-profile-evidence.py hpcc/g3-offline-quality-monitor.py hpcc/g1b-g2-parallel-triage.py hpcc/g1-b-90873-posthoc-audit.py
           python3 hpcc/g0-readonly-audit.py --self-test
           python3 hpcc/g1-readiness-readonly.py --self-test
           python3 hpcc/g1-restart-blocker-audit.py --self-test
