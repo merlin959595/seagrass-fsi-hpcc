@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# One compute-node Slurm job: re-use verified GNU-time SIF or pull it if absent; real isolated 0.02s FSI.
+# Does not overwrite the verified fullstack SIF, old SIF, or failed job 87098 records.
+set -euo pipefail
+ROOT="$HOME/hpcc-fsi/seagrass-implicit-20261111"
+BASE="$HOME/hpcc-fsi"
+SIF="$HOME/seagrass-fsi-ompi507-scotch-time.sif"
+LOGS="$BASE/logs"
+BATCH="$(mktemp "$BASE/ompi507-timefix-fsi-002.XXXXXX.sbatch")"
+test -s "$ROOT/hpcc/implicit-002-driver.py" || { echo "STOP missing pilot driver"; exit 1; }
+test -s "$ROOT/fsi-implicit-production/run_production.py" || { echo "STOP missing input controller"; exit 1; }
+test -s "$ROOT/scripts/native/bin/ccx_preCICE_persistent_v2" || { echo "STOP missing custom CCX"; exit 1; }
+test -s "$HOME/seagrass-fsi-ompi507-fullstack.sif" || { echo "STOP missing former SIF"; exit 1; }
+if [[ -e "$SIF" && ! -s "$SIF" ]]; then echo "STOP: existing SIF is zero length; manual audit required: $SIF"; exit 1; fi
+if [[ ! -e "$SIF" && -e "$SIF.partial.sif" ]]; then echo "STOP: incomplete image pull; manual audit required: $SIF.partial.sif"; exit 1; fi
+mkdir -p "$LOGS"
+cat > "$BATCH" <<'SBATCH'
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$HOME/hpcc-fsi/seagrass-implicit-20261111"
+BASE="$HOME/hpcc-fsi"
+SIF="$HOME/seagrass-fsi-ompi507-scotch-time.sif"
+TEMP="$SIF.partial.sif"
+PILOT="$BASE/implicit-pilot-002-8mpi-timefix-${SLURM_JOB_ID:?}"
+IMAGE="docker://ghcr.io/merlin959595/seagrass-fsi-hpcc:ompi5.0.7-precice3.4.1-scotch-time-candidate"
+diagnose() {
+  rc=$?
+  if [[ $rc -ne 0 ]]; then
+    echo "PILOT_FAILED_EXIT=$rc" >&2
+    for f in "$PILOT/preflight/STATE.json" "$PILOT/production/STATE.json"; do
+      [[ ! -f "$f" ]] || { echo "STATE $f"; tail -n 40 "$f"; } >&2
+    done
+    for f in "$PILOT/preflight/runs/hpcc-implicit-002/decompose.log" \
+             "$PILOT/production/runs/hpcc-implicit-002/decompose.log" \
+             "$PILOT/production/runs/hpcc-implicit-002/fluid.log" \
+             "$PILOT/production/runs/hpcc-implicit-002/solid.log"; do
+      [[ ! -f "$f" ]] || { echo "LOG $f"; tail -n 50 "$f"; } >&2
+    done
+  fi
+}
+trap diagnose EXIT
+test ! -e "$PILOT" || { echo "STOP: pilot directory already exists: $PILOT" >&2; exit 1; }
+echo "===== ALLOCATED NODE ====="
+hostname; date -Is
+echo "JOB=$SLURM_JOB_ID CPU_PER_TASK=$SLURM_CPUS_PER_TASK"
+echo "===== REUSE VERIFIED EXISTING SIF OR PULL IF MISSING ====="
+if [[ -s "$SIF" ]]; then
+  echo "EXISTING_SIF_DETECTED: $SIF"
+  if [[ -s "$SIF.sha256" ]]; then
+    sha256sum -c "$SIF.sha256" || { echo "STOP: existing SIF checksum mismatch" >&2; exit 31; }
+  else
+    echo "WARNING: no prior checksum sidecar; recording hash in Slurm log (not asserting image provenance)"
+    sha256sum "$SIF"
+  fi
+else
+  test ! -e "$SIF" || { echo "STOP: corrupt zero-length SIF" >&2; exit 32; }
+  test ! -e "$TEMP" || { echo "STOP: old partial SIF" >&2; exit 33; }
+  singularity pull "$TEMP" "$IMAGE"
+  singularity sif list "$TEMP"
+  mv "$TEMP" "$SIF"
+  sha256sum "$SIF" | tee "$SIF.sha256"
+fi
+singularity sif list "$SIF"
+echo "SIF_IMAGE_FORMAT_PASS (actual FSI environment verified below)"
+echo "===== OPENFOAM DEPENDENCY, MESH PREFLIGHT, AND REAL FSI ====="
+singularity exec --cleanenv "$SIF" bash -c '
+set +eu
+PILOT="$1"
+export WM_MPLIB=SYSTEMOPENMPI
+source /usr/lib/openfoam/openfoam2512/etc/bashrc
+export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"
+export LD_LIBRARY_PATH="/opt/scotch-compat/lib:/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:${LD_LIBRARY_PATH:-}"
+export PKG_CONFIG_PATH="/opt/precice-3.4.1-ompi5/lib/pkgconfig:/opt/precice-3.4.1-ompi5/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
+export PYTHONUNBUFFERED=1
+export PYTHONDONTWRITEBYTECODE=1
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+ROOT="$HOME/hpcc-fsi/seagrass-implicit-20261111"
+export LD_LIBRARY_PATH="$ROOT/scripts/native/lib:$ROOT/fsi-explicit-test/mesh-guard/lib:$LD_LIBRARY_PATH"
+set -eo pipefail
+test "$WM_PROJECT_VERSION" = "v2512"
+test "$(command -v mpirun)" = "/opt/openmpi-5.0.7/bin/mpirun"
+mpirun --version | head -n 1
+precice-version
+report="$(ldd -r "$(command -v decomposePar)" 2>&1)" || { printf "%s\n" "$report"; exit 10; }
+printf "%s\n" "$report" | grep -E "libscotch|libmpi" || true
+if printf "%s\n" "$report" | grep -E "not found|undefined symbol|libmpi_cxx"; then
+  echo "DECOMPOSEPAR_ABI_FAIL"; exit 11
+fi
+echo "DECOMPOSEPAR_ABI_PASS"
+test -x /usr/bin/time || { echo "GNU_TIME_MISSING"; exit 13; }
+/usr/bin/time -v /bin/true 2>&1 | grep -F "Command being timed"
+echo "GNU_TIME_RUNTIME_PASS"
+echo "===== FROZEN CONTROLLER END-TO-END RUNTIME DEPENDENCY GATE ====="
+for app in mpirun pimpleFoam decomposePar precice-config-validate checkMesh reconstructPar reconstructParMesh python3 dpkg-query; do
+  executable="$(command -v "$app")" || { echo "FATAL_MISSING_EXECUTABLE: $app"; exit 21; }
+  test -x "$executable" || { echo "FATAL_NOT_EXECUTABLE: $executable"; exit 22; }
+  echo "FOUND $app => $executable"
+done
+for app in pimpleFoam decomposePar precice-config-validate checkMesh reconstructPar reconstructParMesh; do
+  binary="$(command -v "$app")"
+  deps="$(ldd -r "$binary" 2>&1)" || { printf "%s\n" "$deps"; exit 23; }
+  if printf "%s\n" "$deps" | grep -E "not found|undefined symbol|libmpi_cxx"; then
+    echo "FATAL_DYNAMIC_LINK: $app"; exit 24
+  fi
+done
+for native in "$ROOT/scripts/native/bin/ccx_preCICE_persistent_v2"               "$ROOT/scripts/native/lib/libseagrassReferenceRestart.so"               "$ROOT/fsi-explicit-test/mesh-guard/lib/libseagrassExplicitMeshGuard.so"; do
+  test -s "$native" || { echo "FATAL_MISSING_NATIVE: $native"; exit 25; }
+  deps="$(ldd -r "$native" 2>&1)" || { printf "%s\n" "$deps"; exit 26; }
+  if printf "%s\n" "$deps" | grep -E "not found|undefined symbol|libmpi_cxx"; then
+    echo "FATAL_NATIVE_DYNAMIC_LINK: $native"; exit 27
+  fi
+done
+python3 -c "import json,subprocess,fcntl; from pathlib import Path; p=Path.home()/\"hpcc-fsi/seagrass-implicit-20261111\"; assert (p/\"fsi-implicit-production/run_production.py\").is_file()"
+echo "FULL_CONTROLLER_DEPENDENCY_PREFLIGHT_PASS"
+echo "===== FROZEN MESH, XML, AND 8 MPI PREFLIGHT ====="
+python3 "$ROOT/hpcc/implicit-002-driver.py" \
+ --root "$ROOT" --work "$PILOT/preflight" \
+ --mode preflight --ranks 8
+echo "===== REAL 0.02s IMPLICIT TWO-WAY FSI ====="
+python3 "$ROOT/hpcc/implicit-002-driver.py" \
+ --root "$ROOT" --work "$PILOT/production" \
+ --mode run --ranks 8
+echo "HPCC_IMPLICIT_0P02_ACCEPTED_160_WINDOWS_PASS"
+' bash "$PILOT"
+echo "===== NEW TIME-FIXED PILOT PASSED ====="
+SBATCH
+echo "Submitting GNU-time-fixed 8-MPI + 2 CCX thread real 0.02s pilot."
+JOBID="$(sbatch --parsable -p cpu -N 1 -n 1 -c 12 --mem=24G -t 12:00:00 \
+  -J fsi-timefix-002 \
+  -o "$LOGS/fsi-timefix-002-%j.out" -e "$LOGS/fsi-timefix-002-%j.err" "$BATCH")"
+echo "JOBID=$JOBID"
+echo "OUT=$LOGS/fsi-timefix-002-$JOBID.out"
+echo "ERR=$LOGS/fsi-timefix-002-$JOBID.err"
+echo "STATE=$BASE/implicit-pilot-002-8mpi-timefix-$JOBID/production/STATE.json"

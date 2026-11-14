@@ -1,0 +1,130 @@
+name: Verify short FSI benchmark controller
+
+on:
+  push:
+    branches:
+      - upgrade/openmpi-5.0.7-hpcc
+    paths:
+      - 'hpcc/benchmark-short-fsi.py'
+      - 'hpcc/submit-thread-benchmark.sh'
+      - 'hpcc/submit-thread4-only.sh'
+      - 'hpcc/submit-iqn20-benchmark.sh'
+      - 'hpcc/submit-optimized-full160.sh'
+      - 'hpcc/submit-omp-scaling.sh'
+      - 'hpcc/submit-omp12-iqn15-20.sh'
+      - 'hpcc/audit-thread1-88107.py'
+      - 'hpcc/g0-readonly-audit.py'
+      - 'hpcc/g1-readiness-readonly.py'
+      - 'hpcc/g1-restart-blocker-audit.py'
+      - 'hpcc/submit-g1-restart-write10.sh'
+      - 'hpcc/g2-g3-offline-gates.py'
+      - 'hpcc/g1-phase-b-stage-config.py'
+      - 'hpcc/g1-b-real-restart.py'
+      - 'hpcc/submit-g1-b-real-restart10.sh'
+      - '.github/workflows/check-short-benchmark.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Syntax and safe patching checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py hpcc/g0-readonly-audit.py hpcc/g1-readiness-readonly.py hpcc/g1-restart-blocker-audit.py hpcc/g2-g3-offline-gates.py hpcc/g1-phase-b-stage-config.py hpcc/g1-b-real-restart.py
+          python3 hpcc/g0-readonly-audit.py --self-test
+          python3 hpcc/g1-readiness-readonly.py --self-test
+          python3 hpcc/g1-restart-blocker-audit.py --self-test
+          python3 hpcc/g2-g3-offline-gates.py --self-test
+          python3 hpcc/g1-phase-b-stage-config.py --self-test
+          python3 hpcc/g1-b-real-restart.py --self-test
+          bash -n hpcc/submit-g1-b-real-restart10.sh
+          bash -n hpcc/submit-g1-restart-write10.sh
+          bash -n hpcc/submit-thread-benchmark.sh hpcc/submit-thread4-only.sh hpcc/submit-iqn20-benchmark.sh hpcc/submit-optimized-full160.sh hpcc/submit-omp-scaling.sh hpcc/submit-omp12-iqn15-20.sh
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          p=Path("hpcc/benchmark-short-fsi.py")
+          spec=importlib.util.spec_from_file_location("bench",p)
+          b=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(b)
+          source="*STEP,INC=1320,NLGEOM\n*DYNAMIC,DIRECT\n0.000125, 0.02\n*NODE FILE,FREQUENCY=80\n*EL FILE,FREQUENCY=80\n*RESTART,WRITE,FREQUENCY=80,OVERLAY\n*END STEP\n"
+          patched=b.patch_deck(source,0.00075,6)
+          assert "*DYNAMIC,DIRECT\n0.000125, 0.00075" in patched
+          assert patched.count("FREQUENCY=6")==3
+          assert "FREQUENCY=80" not in patched
+          assert b.replace_one(r'(<max-time value=")0\.02(")',r'\g<1>0.00075\2','<max-time value="0.02" />',"xml")=='<max-time value="0.00075" />'
+          for old in ("0.02", "0.0200000", "2e-2", "0.0200000000000000"):
+              before=f"application pimpleFoam;\nendTime {old};\nwriteControl timeStep; writeInterval 80;\n"
+              after=b.replace_foam_end_time(before,0.00075)
+              assert "endTime 0.00075;" in after, (old, after)
+              assert "writeInterval 80;" in after
+          try:
+              b.replace_foam_end_time("endTime 1.0;\n",0.00075)
+          except RuntimeError:
+              pass
+          else:
+              raise AssertionError("Incorrect prior endTime accepted")
+          real_control = (
+              "startFrom startTime; startTime 0; stopAt endTime; endTime 0.02; deltaT 0.000125;\n"
+              "adjustTimeStep no; maxCo 0.5; writeControl timeStep; writeInterval 80; purgeWrite 0;\n"
+              "flowExtrema { type fieldMinMax; libs (fieldFunctionObjects); fields (U p k omega); writeControl timeStep; writeInterval 80; }\n"
+              "bladeForces { type forces; libs (forces); patches (bladeInterface); rho rhoInf; rhoInf 1000; pRef 0; CofR (0 0 0); writeControl timeStep; writeInterval 80; }\n"
+              "wallYPlus { type yPlus; libs (fieldFunctionObjects); executeControl timeStep; executeInterval 1; writeControl timeStep; writeInterval 80; }\n"
+          )
+          result=b.replace_foam_write_intervals(b.replace_foam_end_time(real_control,0.00075),6)
+          assert result.count("writeInterval 6;")==4, result
+          assert "endTime 0.00075;" in result
+          assert "stopAt endTime;" in result
+          assert "executeInterval 1;" in result
+          try:
+              b.replace_foam_write_intervals("writeControl timeStep; writeInterval 80;",6)
+          except RuntimeError:
+              pass
+          else:
+              raise AssertionError("unexpected number of writeIntervals accepted")
+          from tempfile import TemporaryDirectory
+          with TemporaryDirectory() as temporary:
+              solid=Path(temporary)
+              spooles=solid/"spooles.out"
+              log=solid/"solid.log"
+              spooles.write_text("")
+              log.write_text("Using up to 1 cpu(s) for spooles\\n")
+              serial=b.verify_spooles_threads(solid,log,1)
+              assert serial["actual_spooles_threads"]==1
+              assert serial["verification"]=="empty_serial_spooles_out"
+              spooles.write_text("Using 2 threads\\n")
+              log.write_text("Using up to 2 cpu(s) for spooles\\n")
+              parallel=b.verify_spooles_threads(solid,log,2)
+              assert parallel["actual_spooles_threads"]==2
+              try:
+                  b.verify_spooles_threads(solid,log,1)
+              except RuntimeError:
+                  pass
+              else:
+                  raise AssertionError("SPOOLES mismatch accepted")
+          import inspect
+          assert "iqn_reuse" in inspect.signature(b.inspect_frozen_dictionaries).parameters
+          actualdict = b.replace_foam_write_intervals(b.replace_foam_end_time(real_control,0.02),160)
+          assert "endTime 0.02;" in actualdict
+          assert actualdict.count("writeInterval 160;") == 4
+          # G1 phase A: CCX restart frequency counts *STEP, not output increments.
+          g1_source="*STEP,INC=1320,NLGEOM\n*DYNAMIC,DIRECT\n0.000125, 0.02\n*NODE FILE,FREQUENCY=80\n*EL FILE,FREQUENCY=80\n*RESTART,WRITE,FREQUENCY=80,OVERLAY\n*END STEP\n"
+          patched_g1=b.patch_structural_restart_frequency(b.patch_deck(g1_source,0.00125,10))
+          assert "*RESTART,WRITE,FREQUENCY=1,OVERLAY" in patched_g1
+          assert patched_g1.count("FREQUENCY=10")==2
+          assert patched_g1.count("FREQUENCY=1,OVERLAY")==1
+          try:
+              b.patch_structural_restart_frequency("*STEP\n*STEP\n*RESTART,WRITE,FREQUENCY=10,OVERLAY\n*END STEP\n")
+          except RuntimeError:
+              pass
+          else:
+              raise AssertionError("Two STEP deck accepted for isolated G1")
+          full_deck=b.patch_deck(source, 0.02, 160)
+          assert "*DYNAMIC,DIRECT\n0.000125, 0.02" in full_deck
+          assert full_deck.count("FREQUENCY=160") == 3
+          print("SHORT_BENCHMARK_STATIC_TEST_PASS")
+          PY

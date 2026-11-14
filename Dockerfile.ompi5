@@ -1,0 +1,83 @@
+# Candidate Open MPI 5.0.7 layer on top of the already validated seagrass stack.
+# Keep the original image and 4.1.6 runtime untouched for rollback.
+FROM --platform=linux/amd64 ghcr.io/merlin959595/seagrass-fsi-hpcc:v2512-precice3.4.1-ccx2.20.2
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+ENV OMPI5_PREFIX=/opt/openmpi-5.0.7
+
+# Install build tools; do not remove the old distribution MPI because the
+# existing OpenFOAM / preCICE packages may still depend on its other libraries.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl build-essential gfortran perl m4 pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use the OFFICIAL Open MPI release archive, not GitHub's generated source zip.
+# SHA256: https://www.open-mpi.org/software/ompi/v5.0/
+RUN set -eux; \
+    curl -fL --retry 5 --retry-all-errors \
+      -o /tmp/openmpi-5.0.7.tar.gz \
+      https://download.open-mpi.org/release/open-mpi/v5.0/openmpi-5.0.7.tar.gz; \
+    echo '67435fdb2560f897882e69fead171d38e7f44a6dfe1d3c90506f549a943050b8  /tmp/openmpi-5.0.7.tar.gz' | sha256sum -c -; \
+    tar -xzf /tmp/openmpi-5.0.7.tar.gz -C /tmp; \
+    cd /tmp/openmpi-5.0.7; \
+    ./configure --prefix="$OMPI5_PREFIX" \
+       --with-hwloc=internal --with-libevent=internal \
+       --with-pmix=internal --with-prrte=internal \
+       --disable-static; \
+    make -j"$(nproc)"; \
+    make install; \
+    rm -rf /tmp/openmpi-5.0.7 /tmp/openmpi-5.0.7.tar.gz
+
+# Select 5.0.7 for NEW runs; the old /usr/bin/mpirun remains available.
+ENV PATH="/opt/openmpi-5.0.7/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:${LD_LIBRARY_PATH}"
+
+# A real MPI_Init/Finalize smoke test, not just 'mpirun --version'.
+RUN cat > /tmp/ompi5-smoke.c <<'EOF'
+#include <mpi.h>
+#include <stdio.h>
+int main(int argc, char **argv) {
+  int rank=-1, size=-1;
+  MPI_Init(&argc, &argv);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  printf("FSI_MPI_SMOKE_RANK=%d/%d\n", rank, size);
+  fflush(stdout);
+  if (size != 2) MPI_Abort(MPI_COMM_WORLD, 99);
+  MPI_Finalize();
+  return 0;
+}
+EOF
+RUN set -eux; \
+    test "$(command -v mpirun)" = "$OMPI5_PREFIX/bin/mpirun"; \
+    mpirun --version | grep -F '5.0.7'; \
+    mpicc /tmp/ompi5-smoke.c -o /usr/local/bin/ompi5-smoke; \
+    ldd /usr/local/bin/ompi5-smoke | grep -F "$OMPI5_PREFIX/lib/"; \
+    output="$(mpirun --allow-run-as-root --oversubscribe --bind-to none -np 2 /usr/local/bin/ompi5-smoke)"; \
+    echo "$output"; \
+    grep -qx 'FSI_MPI_SMOKE_RANK=0/2' <<< "$(echo "$output" | grep '^FSI_MPI_SMOKE_RANK=' | sort | head -n 1)"; \
+    grep -qx 'FSI_MPI_SMOKE_RANK=1/2' <<< "$(echo "$output" | grep '^FSI_MPI_SMOKE_RANK=' | sort | tail -n 1)"
+
+# Fail closed if the pre-built OpenFOAM/preCICE components cannot load under 5.
+# This check is intentionally strict: a pass does NOT replace a real coupled FSI test.
+RUN export WM_MPLIB=SYSTEMOPENMPI; \
+    source /usr/lib/openfoam/openfoam2512/etc/bashrc; \
+    set -eux; \
+    test "${WM_PROJECT_VERSION:-}" = v2512; \
+    test "$(command -v mpirun)" = "$OMPI5_PREFIX/bin/mpirun"; \
+    test -s "$FOAM_LIBBIN/libpreciceAdapterFunctionObject.so"; \
+    command -v pimpleFoam; \
+    command -v ccx_preCICE; \
+    pkg-config --modversion libprecice | grep -F '3.4.1'; \
+    for f in "$(command -v pimpleFoam)" \
+             "$(command -v ccx_preCICE)" \
+             "$FOAM_LIBBIN/libpreciceAdapterFunctionObject.so"; do \
+      ldd "$f" > /tmp/fsi-ldd.txt; \
+      cat /tmp/fsi-ldd.txt; \
+      ! grep -Eq 'not found|libmpi_cxx' /tmp/fsi-ldd.txt; \
+    done; \
+    ldd "$(command -v pimpleFoam)" | grep -F "$OMPI5_PREFIX/lib/libmpi.so"; \
+    echo FSI_OMPI507_BUILD_LINK_MPI_SMOKE_OK
+
+WORKDIR /work

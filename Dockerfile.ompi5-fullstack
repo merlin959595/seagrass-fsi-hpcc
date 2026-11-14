@@ -1,0 +1,90 @@
+# Open MPI 5.0.7 ABI-clean candidate for the existing seagrass FSI stack.
+# Uses the previously built Open MPI 5 candidate as a BUILD BASE only.
+# Do not treat this image as validated for production 3D FSI until actual coupling runs.
+FROM --platform=linux/amd64 ghcr.io/merlin959595/seagrass-fsi-hpcc:ompi5.0.7-candidate
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+ENV OMPI5_PREFIX=/opt/openmpi-5.0.7
+ENV PRECICE_PREFIX=/opt/precice-3.4.1-ompi5
+ENV PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:${PATH}"
+ENV PKG_CONFIG_PATH="/opt/precice-3.4.1-ompi5/lib/pkgconfig:/opt/precice-3.4.1-ompi5/lib64/pkgconfig:${PKG_CONFIG_PATH}"
+ENV CMAKE_PREFIX_PATH="/opt/precice-3.4.1-ompi5:${CMAKE_PREFIX_PATH}"
+ENV LD_LIBRARY_PATH="/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:${LD_LIBRARY_PATH}"
+
+# preCICE 3.4.1: PETSc is optional, and the EXACT rbf-global-direct mapping
+# used by this case is based on Eigen, not PETSc. This avoids all of the
+# Ubuntu Open MPI 4 / PETSc / Trilinos / libmpi_cxx dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  cmake libeigen3-dev libxml2-dev libboost-all-dev \
+  python3-dev python3-numpy pkg-config git \
+  && rm -rf /var/lib/apt/lists/*
+
+# Build RELEASE preCICE from its official fixed v3.4.1 git tag,
+# explicitly selecting the Open MPI 5 C++ compiler wrapper.
+RUN set -eux; \
+  git clone --depth 1 --branch v3.4.1 https://github.com/precice/precice.git /tmp/precice-3.4.1; \
+  test "$(git -C /tmp/precice-3.4.1 describe --tags --exact-match)" = v3.4.1; \
+  cmake -S /tmp/precice-3.4.1 -B /tmp/precice-build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$PRECICE_PREFIX" \
+    -DCMAKE_CXX_COMPILER="$OMPI5_PREFIX/bin/mpicxx" \
+    -DMPI_CXX_COMPILER="$OMPI5_PREFIX/bin/mpicxx" \
+    -DPRECICE_FEATURE_MPI_COMMUNICATION=ON \
+    -DPRECICE_FEATURE_PETSC_MAPPING=OFF \
+    -DPRECICE_FEATURE_PYTHON_ACTIONS=OFF \
+    -DPRECICE_CONFIGURE_PACKAGE_GENERATION=OFF; \
+  grep -E '^PRECICE_FEATURE_PETSC_MAPPING:BOOL=OFF$' /tmp/precice-build/CMakeCache.txt; \
+  cmake --build /tmp/precice-build --parallel 2; \
+  cmake --install /tmp/precice-build; \
+  test -x "$PRECICE_PREFIX/bin/precice-version"; \
+  pkg-config --modversion libprecice | grep -Fx 3.4.1; \
+  rm -rf /tmp/precice-build /tmp/precice-3.4.1
+
+# Rebuild OpenFOAM-preCICE adapter v1.4.0 with the NEW preCICE.
+# OpenFOAM itself stays v2512; the C MPI API is resolved by Open MPI 5.
+RUN export WM_MPLIB=SYSTEMOPENMPI; \
+  source /usr/lib/openfoam/openfoam2512/etc/bashrc; \
+  set -e; \
+  export PATH="$PRECICE_PREFIX/bin:$OMPI5_PREFIX/bin:$PATH"; \
+  export PKG_CONFIG_PATH="$PRECICE_PREFIX/lib/pkgconfig:$PRECICE_PREFIX/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"; \
+  export LD_LIBRARY_PATH="$PRECICE_PREFIX/lib:$PRECICE_PREFIX/lib64:$OMPI5_PREFIX/lib:$OMPI5_PREFIX/lib64:${LD_LIBRARY_PATH:-}"; \
+  test "$WM_PROJECT_VERSION" = v2512; \
+  test "$(command -v mpirun)" = "$OMPI5_PREFIX/bin/mpirun"; \
+  pkg-config --modversion libprecice | grep -Fx 3.4.1; \
+  export PRECICE_OPENFOAM_TARGET_DIR="$FOAM_LIBBIN"; \
+  cd /opt/openfoam-adapter-1.4.0; \
+  ./Allwmake; \
+  test -s "$FOAM_LIBBIN/libpreciceAdapterFunctionObject.so"
+
+# Fail closed unless preCICE and all target executables LOAD without old MPI C++
+# / old PETSc/Trilinos dependencies. Existing distro CalculiX must also resolve.
+RUN export WM_MPLIB=SYSTEMOPENMPI; \
+  source /usr/lib/openfoam/openfoam2512/etc/bashrc; \
+  set -e; \
+  export PATH="$PRECICE_PREFIX/bin:$OMPI5_PREFIX/bin:$PATH"; \
+  export LD_LIBRARY_PATH="$PRECICE_PREFIX/lib:$PRECICE_PREFIX/lib64:$OMPI5_PREFIX/lib:$OMPI5_PREFIX/lib64:${LD_LIBRARY_PATH:-}"; \
+  test "$(command -v precice-version)" = "$PRECICE_PREFIX/bin/precice-version"; \
+  mpirun --version | head -n 1 | grep -F '5.0.7'; \
+  precice-version; \
+  pkg-config --modversion libprecice | grep -Fx '3.4.1'; \
+  mpirun --allow-run-as-root --oversubscribe --bind-to none -np 2 /usr/local/bin/ompi5-smoke \
+    | tee /tmp/ompi5-smoke.out; \
+  grep -F 'FSI_MPI_SMOKE_RANK=0/2' /tmp/ompi5-smoke.out; \
+  grep -F 'FSI_MPI_SMOKE_RANK=1/2' /tmp/ompi5-smoke.out; \
+  libprecice="$(find "$PRECICE_PREFIX" -name 'libprecice.so.3' -print -quit)"; \
+  test -n "$libprecice"; \
+  for f in "$libprecice" "$(command -v precice-version)" \
+    "$(command -v ccx_preCICE)" "$(command -v pimpleFoam)" \
+    "$FOAM_LIBBIN/libpreciceAdapterFunctionObject.so"; do \
+    echo "===== ABI audit: $f ====="; \
+    report="$(ldd -r "$f" 2>&1)" || { echo "$report"; exit 9; }; \
+    echo "$report" | grep -E 'libmpi|libprecice|libpetsc' || true; \
+    if echo "$report" | grep -E 'not found|undefined symbol|libmpi_cxx|libpetsc_real|libtrilinos'; then \
+      echo "ABI_FAIL: old MPI/PETSc/Trilinos or unresolved symbols in $f"; exit 10; \
+    fi; \
+  done; \
+  ldd "$libprecice" | grep -F "$OMPI5_PREFIX/lib/libmpi.so"; \
+  echo 'FSI_OMPI507_PRECICE341_ABI_SMOKE_PASS'
+
+WORKDIR /work
