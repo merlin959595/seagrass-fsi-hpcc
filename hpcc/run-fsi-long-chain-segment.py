@@ -102,6 +102,18 @@ def source_for(base,stage,previous_job):
     t,saved=latest_time(run/"fluid")
     if abs(t-expected_t)>1e-9:
         raise RuntimeError(f"Checkpoint mismatch expected {expected_t} found {t}")
+    if stage==0:
+        # 90873 post-hoc proves FSI trajectory agreement, but the original
+        # verifier stopped before checking checkpoint advancement. Verify
+        # BOTH outputs are actually different from their 0.00125s inputs.
+        pairs=(("seagrass.rin","seagrass.rout"),
+               ("kinematic_state.input.bin","kinematic_state.bin"))
+        for before,after in pairs:
+            inp=run/"solid"/before
+            out=run/"solid"/after
+            if not inp.is_file() or not out.is_file() or sha(inp)==sha(out):
+                raise RuntimeError("90873 structural state not advanced: "+
+                                   before+" -> "+after)
     deck=(run/"solid/seagrass.inp").read_text()
     match=re.search(r"(?mi)^\s*\*RESTART\s*,\s*READ\s*,\s*STEP=(\d+)",deck)
     if not match or int(match.group(1))!=next_step-1:
