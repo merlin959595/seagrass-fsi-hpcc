@@ -101,6 +101,18 @@ jobs:
           actualdict = b.replace_foam_write_intervals(b.replace_foam_end_time(real_control,0.02),160)
           assert "endTime 0.02;" in actualdict
           assert actualdict.count("writeInterval 160;") == 4
+          # G1 phase A: CCX restart frequency counts *STEP, not output increments.
+          g1_source="*STEP,INC=1320,NLGEOM\n*DYNAMIC,DIRECT\n0.000125, 0.02\n*NODE FILE,FREQUENCY=80\n*EL FILE,FREQUENCY=80\n*RESTART,WRITE,FREQUENCY=80,OVERLAY\n*END STEP\n"
+          patched_g1=b.patch_structural_restart_frequency(b.patch_deck(g1_source,0.00125,10))
+          assert "*RESTART,WRITE,FREQUENCY=1,OVERLAY" in patched_g1
+          assert patched_g1.count("FREQUENCY=10")==2
+          assert patched_g1.count("FREQUENCY=1,OVERLAY")==1
+          try:
+              b.patch_structural_restart_frequency("*STEP\n*STEP\n*RESTART,WRITE,FREQUENCY=10,OVERLAY\n*END STEP\n")
+          except RuntimeError:
+              pass
+          else:
+              raise AssertionError("Two STEP deck accepted for isolated G1")
           full_deck=b.patch_deck(source, 0.02, 160)
           assert "*DYNAMIC,DIRECT\n0.000125, 0.02" in full_deck
           assert full_deck.count("FREQUENCY=160") == 3
