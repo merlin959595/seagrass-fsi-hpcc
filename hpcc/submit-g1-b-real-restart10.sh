@@ -55,8 +55,9 @@ test "$WM_PROJECT_VERSION" = "v2512"
 test "$(command -v mpirun)" = "/opt/openmpi-5.0.7/bin/mpirun"
 test -x /usr/bin/time
 test -x "$ROOT/scripts/native/bin/ccx_preCICE_persistent_v2"
+export SLURM_JOB_ID="$4"
 python3 "$1" --base "$HOME/hpcc-fsi" --proposal "$2" --work "$3" --run --max-seconds 10800
-' bash "$G1_B_SCRIPT" "$PROPOSAL" "$WORK"
+' bash "$G1_B_SCRIPT" "$PROPOSAL" "$WORK" "$SLURM_JOB_ID"
 echo "G1_B_SLURM_EXIT=0"
 SBATCH
 JOB="$(sbatch --parsable -p cpu -N 1 -n 1 -c 12 --mem=24G -t 04:00:00 \
