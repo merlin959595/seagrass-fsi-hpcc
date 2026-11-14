@@ -182,7 +182,7 @@ def main():
     args=p.parse_args()
     if args.self_test:
         assert re.search(r"(?<!\w)ccx\b","launch ccx -i ...",re.I)
-        assert re.search(r"restart|checkpoint","*RESTART,WRITE")
+        assert re.search(r"restart|checkpoint","*RESTART,WRITE",re.I)
         assert len(EXCERPTS)==4
         print("G1_BLOCKER_AUDIT_STATIC_TEST_PASS")
         return
