@@ -91,6 +91,8 @@ def evidence(base,work,source):
     for c in chunks[1:]:
         m=re.search(r'Total\s*:\s*\(([-+\d.eE]+)\s+([-+\d.eE]+)\s+([-+\d.eE]+)\)',c)
         if m:first_force.append([float(x) for x in m.groups()])
+    first_force0=first_force[0][0] if first_force else None
+    first_force_error=(abs(first_force0-expected)/abs(expected)) if first_force0 is not None else None
     return dict(
       source_last_force0_N=expected,
       source_last_watch_time_relative_s=expected_time,
@@ -99,6 +101,8 @@ def evidence(base,work,source):
       initial_force_map_lines=initial_lines[:6],
       initial_force_map_not_zero_skipped=initialized,
       first_fluid_forces=first_force[:3],
+      first_fluid_force0_relative_jump=first_force_error,
+      first_fluid_force0_within_20pct=(first_force_error is not None and first_force_error<=.20),
       min_displacement_mesh_courant_note="Check original independent quality evidence",
       solid_finished_with_error=bool(re.search(r"\*ERROR:.*|solution seems to diverge",solid,re.I)),
       initial_force_within_10pct=(diff is not None and diff<=.10),
@@ -144,6 +148,7 @@ def run(base,work):
        prior.get("status")=="ALE_NONZERO_INITIAL_DISPLACEMENT_8WINDOW_PASS" and
        diag["initial_force_map_not_zero_skipped"] and
        diag["initial_force_within_10pct"] and
+       diag["first_fluid_force0_within_20pct"] and
        not diag["solid_finished_with_error"])
     outcome=dict(
        status="BOTH_INITIAL_FIELDS_2WINDOW_STRICT_PASS" if ok else "BOTH_INITIAL_FIELDS_2WINDOW_NOT_ACCEPTED",
