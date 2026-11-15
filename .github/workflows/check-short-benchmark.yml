@@ -63,6 +63,7 @@ jobs:
           python3 hpcc/diagnose-91006-meshco-and-checkpoints.py --self-test
           python3 hpcc/qualify-91006-resume.py --self-test
           python3 hpcc/clean-production/segment.py --self-test
+          python3 hpcc/clean-production/test-submit-mock.py
           python3 hpcc/g2-profile-evidence.py --self-test
           python3 hpcc/g3-offline-quality-monitor.py --self-test
           python3 hpcc/g1b-g2-parallel-triage.py --self-test
