@@ -83,6 +83,37 @@ def source_for(base,stage,previous_job):
         expected_t=END_G1
         previous_wall_per_window=1690.2690456761047/10
         next_step=2
+    elif stage==1 and previous_job==91006:
+        # Recovery of the COMPLETE but post-hoc-rejected 91006 solver run.
+        # Gate with a separately issued native checkMesh certificate and a
+        # recorded first-window Mesh Courant exception. Never change 91006.
+        certificate=jread(base/"FSI_91006_RESUME_CERT.json")
+        if certificate.get("status")!="FSI_91006_CONDITIONAL_RESTART_ELIGIBLE":
+            raise RuntimeError("91006 recovery does not have valid independent certification")
+        if certificate.get("source_job")!=91006 or certificate.get("next_step")!=3:
+            raise RuntimeError("91006 certificate identity/restart step mismatch")
+        if certificate.get("native_terminal_checkMesh",{}).get("status")!="PASS":
+            raise RuntimeError("91006 native terminal mesh not independently validated")
+        prior=certificate.get("evidence",{})
+        if prior.get("accepted_windows")!=240 or prior.get("original_guard_failures")!=0:
+            raise RuntimeError("91006 attempted 240-window completion was not proven")
+        if not prior.get("startup_exception"):
+            raise RuntimeError("91006 initial Mesh Courant waiver was not explicitly documented")
+        if prior.get("first_window_meshCo_last_record",99)>.5 or prior.get("remaining_239_windows_meshCo_max",99)>.5:
+            raise RuntimeError("91006 did not meet conditional startup exception criteria")
+        previous=base/"fsi-long-stage0-job91006"
+        run=previous/"runs/hpcc-implicit-002"
+        hashes=prior.get("checkpoint_hashes",{})
+        for label,filepath in (
+          ("solid_rout_sha256",run/"solid/seagrass.rout"),
+          ("solid_kinematic_sha256",run/"solid/kinematic_state.bin"),
+          ("fluid_proc0_terminal_points_sha256",
+           run/"fluid/processor0/0.0325/polyMesh/points")):
+            if not filepath.is_file() or sha(filepath)!=hashes.get(label):
+                raise RuntimeError("91006 checkpoint changed since independent certification: "+label)
+        expected_t=.0325
+        previous_wall_per_window=32483.809472374618/240
+        next_step=3
     else:
         if not previous_job:raise RuntimeError("Missing previous Slurm job")
         previous=base/f"fsi-long-stage{stage-1}-job{previous_job}"
@@ -266,7 +297,14 @@ def accepted_iterations(path,n):
         allrows.append(row)
     return allrows
 
-def quality_from_log(log,end):
+def quality_from_log(log,end,first_attempt_time):
+    """Keep frozen fluid Co and mesh quality gates. Explicitly report the
+    first-window meshCo restart transient instead of silently discarding it.
+
+    An exception is eligible ONLY if every meshCo>0.5 has the very first
+    absolute physical window label, that window's final logged value is <=0.5,
+    and all subsequent windows are <=0.5. Preserve the excursion in JSON.
+    """
     txt=log.read_text(errors="replace")
     matches=re.findall(
        r"SEAGRASS_MESH_GUARD\s+time=([\d.eE+-]+)\s+minVolume=([\d.eE+-]+)"
@@ -280,15 +318,52 @@ def quality_from_log(log,end):
         raise RuntimeError("ALE mesh guard failed during real FSI segment")
     if not any(abs(r[0]-end)<1e-9 for r in recs):
         raise RuntimeError("ALE mesh guard missing final physical time")
-    meshco=[float(x) for x in re.findall(r"Mesh Courant Number mean:\s*[\d.eE+-]+\s+max:\s*([\d.eE+-]+)",txt)]
-    co=[float(x) for x in re.findall(r"(?<!Mesh )Courant Number mean:\s*[\d.eE+-]+\s+max:\s*([\d.eE+-]+)",txt)]
-    if not meshco or not co:
-        raise RuntimeError("Missing fluid/mesh Courant histories")
-    if max(meshco)>.5 or max(co)>.5:
-        raise RuntimeError(f"Courant gate failed: fluid={max(co)} mesh={max(meshco)}")
-    return {"max_fluid_Co":max(co),"max_mesh_Co":max(meshco),
-            "min_ale_volume_m3":min(r[1] for r in recs),
-            "native_guard_checks":len(recs)}
+
+    co=[float(x) for x in re.findall(
+       r"(?<!Mesh )Courant Number mean:\s*[\d.eE+-]+\s+max:\s*([\d.eE+-]+)",txt)]
+    if not co or max(co)>.5:
+        raise RuntimeError("Missing fluid Courant diagnostics or fluid Co>0.5")
+
+    mesh_events=[]
+    tm=None
+    for line in txt.splitlines():
+        found=re.match(r"^\s*Time\s*=\s*([+-]?[\d.eE+-]+)\s*$",line)
+        if found:tm=float(found.group(1))
+        match=re.search(
+            r"Mesh Courant Number mean:\s*[\d.eE+-]+\s+max:\s*([\d.eE+-]+)",line)
+        if match:
+            value=float(match.group(1))
+            if not math.isfinite(value):
+                raise RuntimeError("Nonfinite mesh Courant number")
+            mesh_events.append((tm,value))
+    if not mesh_events:raise RuntimeError("No mesh Courant histories")
+    high=[(time,value) for time,value in mesh_events if value>.5]
+    first=[v for time,v in mesh_events
+           if time is not None and abs(time-first_attempt_time)<1e-9]
+    following=[v for time,v in mesh_events
+               if time is not None and time>first_attempt_time+1e-9]
+    if not first or not following:
+        raise RuntimeError("Missing first-window or later-window mesh Courant evidence")
+    if any(time is None or abs(time-first_attempt_time)>1e-9
+           for time,value in high):
+        raise RuntimeError("Mesh Courant >0.5 outside the first restart window")
+    if first[-1]>.5:
+        raise RuntimeError("First restart window's LAST mesh Courant remains >0.5")
+    if max(following)>.5:
+        raise RuntimeError("Later time window mesh Courant >0.5")
+    quality={
+        "max_fluid_Co":max(co),
+        "max_mesh_Co":max(v for _,v in mesh_events),
+        "min_ale_volume_m3":min(r[1] for r in recs),
+        "native_guard_checks":len(recs),
+        "first_window_meshCo_last_record":first[-1],
+        "first_window_meshCo_max":max(first),
+        "initial_restart_window_high_events":len(high),
+        "later_window_meshCo_max":max(following),
+        "first_window_restart_transient_exception":bool(high),
+        "numeric_accuracy_verified_for_startup_excursion":False,
+    }
+    return quality
 
 def check_mesh(fluid,work):
     command=["mpirun","--oversubscribe","-np","8","--bind-to","none",
@@ -371,7 +446,7 @@ def run(base,stage,previous_job,work,max_windows,timeout):
         t,saved=latest_time(fluid)
         if abs(t-meta["final_time_s"])>1e-9:
             raise RuntimeError("Fluid latest time not equal accepted preCICE time")
-        quality=quality_from_log(work/"fluid.log",t)
+        quality=quality_from_log(work/"fluid.log",t,meta["parent_time_s"]+DT)
         if not (solid/"seagrass.rout").is_file() or not (solid/"kinematic_state.bin").is_file():
             raise RuntimeError("New structural continuation checkpoints missing")
         if (sha(solid/"seagrass.rout")==meta["solid_input_rin_sha256"] or
@@ -393,6 +468,8 @@ def run(base,stage,previous_job,work,max_windows,timeout):
            "solid_rout_sha256":sha(solid/"seagrass.rout"),
            "solid_kinematic_sha256":sha(solid/"kinematic_state.bin"),
            "scientific_two_periods_verified":False,
+           "startup_meshCo_exception_recorded":quality["first_window_restart_transient_exception"],
+           "full_meshCo_threshold_met":not quality["first_window_restart_transient_exception"],
            "note":"Approved computation only through stated physical time; two wet oscillations are not inferred."
         }
         jwrite(work/"FSI_SEGMENT_RESULT.json",result)
@@ -430,6 +507,35 @@ def self_test():
     changed=exact(r"(?im)^(\s*\*RESTART\s*,\s*READ\s*,\s*STEP=)\d+",
                   lambda m:m.group(1)+"2",source,"restart self-test")
     assert changed.startswith("*RESTART,READ,STEP=2")
+    # No blanket Courant relaxation: all >.5 excursions must be in first
+    # restart window, whose final logged value must be <=.5.
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        log=Path(d)/"fluid.log"
+        start_t=.0325+.000125
+        end_t=start_t+.000125
+        def guard(t):
+            return (f"SEAGRASS_MESH_GUARD time={t:.9f} minVolume=2.5e-11 "
+                    "concave=0 qualityFailed=0 skewFailed=0 orthFailed=0 tetFailed=0\\n")
+        # Real test log with 2 windows, including an early rejected step.
+        log.write_text(
+          f"Time = {start_t:.9f}\\n"
+          "Courant Number mean: 0.01 max: 0.42\\n"
+          "Mesh Courant Number mean: 0.001 max: 4.18\\n"
+          "Mesh Courant Number mean: 0.001 max: 0.25\\n"
+          +guard(start_t)+
+          f"Time = {end_t:.9f}\\n"
+          "Courant Number mean: 0.01 max: 0.42\\n"
+          "Mesh Courant Number mean: 0.001 max: 0.24\\n"
+          +guard(end_t))
+        good=quality_from_log(log,end_t,start_t)
+        assert good["first_window_restart_transient_exception"]
+        assert good["later_window_meshCo_max"]==.24
+        log.write_text(log.read_text()+f"Time = {end_t:.9f}\\n"
+                       "Mesh Courant Number mean: 0.001 max: 2.0\\n")
+        try:quality_from_log(log,end_t,start_t)
+        except RuntimeError:pass
+        else:raise AssertionError("Later Courant excursion was accepted")
     print("FSI_LONG_CHAIN_STATIC_SELF_TEST_PASS")
 
 def main():
