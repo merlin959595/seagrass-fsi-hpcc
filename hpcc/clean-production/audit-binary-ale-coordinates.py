@@ -39,7 +39,7 @@ def numeric_binary_vectors(path):
     # List/vector internalField and polyMesh/points use same numeric-list
     # body: count, '(', N x (3 doubles), ')'. Bound to line starts.
     starts=list(re.finditer(
-        rb"(?m)^[ \t]*(\d{2,9})[ \t]*\r?\n[ \t]*\([ \t]*\r?\n",b[:65536]))
+        rb"(?m)^[ \t]*(\d{1,9})[ \t]*\r?\n[ \t]*\([ \t]*\r?\n",b[:65536]))
     choices=[]
     for m in starts:
         n=int(m.group(1))
