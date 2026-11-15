@@ -516,23 +516,23 @@ def self_test():
         end_t=start_t+.000125
         def guard(t):
             return (f"SEAGRASS_MESH_GUARD time={t:.9f} minVolume=2.5e-11 "
-                    "concave=0 qualityFailed=0 skewFailed=0 orthFailed=0 tetFailed=0\\n")
+                    "concave=0 qualityFailed=0 skewFailed=0 orthFailed=0 tetFailed=0\n")
         # Real test log with 2 windows, including an early rejected step.
         log.write_text(
-          f"Time = {start_t:.9f}\\n"
-          "Courant Number mean: 0.01 max: 0.42\\n"
-          "Mesh Courant Number mean: 0.001 max: 4.18\\n"
-          "Mesh Courant Number mean: 0.001 max: 0.25\\n"
+          f"Time = {start_t:.9f}\n"
+          "Courant Number mean: 0.01 max: 0.42\n"
+          "Mesh Courant Number mean: 0.001 max: 4.18\n"
+          "Mesh Courant Number mean: 0.001 max: 0.25\n"
           +guard(start_t)+
-          f"Time = {end_t:.9f}\\n"
-          "Courant Number mean: 0.01 max: 0.42\\n"
-          "Mesh Courant Number mean: 0.001 max: 0.24\\n"
+          f"Time = {end_t:.9f}\n"
+          "Courant Number mean: 0.01 max: 0.42\n"
+          "Mesh Courant Number mean: 0.001 max: 0.24\n"
           +guard(end_t))
         good=quality_from_log(log,end_t,start_t)
         assert good["first_window_restart_transient_exception"]
         assert good["later_window_meshCo_max"]==.24
-        log.write_text(log.read_text()+f"Time = {end_t:.9f}\\n"
-                       "Mesh Courant Number mean: 0.001 max: 2.0\\n")
+        log.write_text(log.read_text()+f"Time = {end_t:.9f}\n"
+                       "Mesh Courant Number mean: 0.001 max: 2.0\n")
         try:quality_from_log(log,end_t,start_t)
         except RuntimeError:pass
         else:raise AssertionError("Later Courant excursion was accepted")
