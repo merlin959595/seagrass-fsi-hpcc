@@ -32,6 +32,7 @@ on:
       - 'hpcc/submit-fsi-resume91006.sh'
       - 'hpcc/submit-fsi-recover91410.sh'
       - 'hpcc/clean-production/**'
+      - 'hpcc/three-day-proven/**'
       - 'hpcc/submit-fsi-long-chain.sh'
       - 'hpcc/g2-structural-solver-backend-audit.sh'
       - 'hpcc/g2-affinity-20-candidate.py'
