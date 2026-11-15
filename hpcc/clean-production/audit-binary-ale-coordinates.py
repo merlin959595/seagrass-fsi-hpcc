@@ -39,18 +39,25 @@ def numeric_binary_vectors(path):
     # List/vector internalField and polyMesh/points use same numeric-list
     # body: count, '(', N x (3 doubles), ')'. Bound to line starts.
     starts=list(re.finditer(
-        rb"(?m)^[ \t]*(\d{1,9})[ \t]*\r?\n[ \t]*\([ \t]*\r?\n",b[:65536]))
+        rb"(?m)^[ \t]*(\d{1,9})[ \t]*\r?\n[ \t]*\(",b[:65536]))
     choices=[]
     for m in starts:
         n=int(m.group(1))
-        start=m.end()
-        size=24*n
-        if start+size+2>len(b):continue
-        trailer=b[start+size:start+size+12]
-        if re.match(rb"\r?\n[ \t]*\)",trailer):
-            choices.append((n,start))
-    if len(choices)!=1:
-        raise ValueError(f"{path}: ambiguous vector-list binary body: {choices}")
+        for offset in (0,1,2):
+            start=m.end()+offset
+            if offset==1 and b[m.end():m.end()+1] not in (b"\n",b"\r"):
+                continue
+            if offset==2 and b[m.end():m.end()+2]!=b"\r\n":
+                continue
+            size=24*n
+            if start+size+1>len(b):continue
+            trailer=b[start+size:start+size+12]
+            if re.match(rb"[ \t\r\n]*\)",trailer):
+                choices.append((n,start))
+    if not choices:
+        raise ValueError(f"{path}: OpenFOAM vector-list binary data was not found")
+    # The header/internalField vector list is the first numeric list. Later
+    # boundaryField lists may also be valid and must not be selected.
     n,start=choices[0]
     values=array.array("d")
     values.frombytes(b[start:start+n*24])
@@ -154,7 +161,7 @@ def self_test():
         raw=array.array("d",vectors)
         if sys.byteorder!="little":raw.byteswap()
         path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_bytes(hd+str(n).encode()+b"\n(\n"+raw.tobytes()+b"\n)\n;\n")
+        path.write_bytes(hd+str(n).encode()+b"\n("+raw.tobytes()+b"\n)\n;\n")
     with tempfile.TemporaryDirectory() as d:
         d=Path(d)
         a=[0.,0.,0.,1.,0.,0.]
