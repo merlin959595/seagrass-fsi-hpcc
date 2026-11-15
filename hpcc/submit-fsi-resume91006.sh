@@ -18,6 +18,10 @@ for file in "$QUAL" "$DIAG" "$CHAIN" "$SIF"; do
 done
 test ! -e "$BASE/FSI_91006_RESUME_CERT.json" || {
     echo "STOP: resume certificate already exists; avoid duplicate chain" >&2; exit 4; }
+if grep -q '__LIBPATH__\|__PKGPATH__' "$0"; then
+    echo "STOP: unresolved loader placeholder in submission script" >&2
+    exit 45
+fi
 python3 -m py_compile "$QUAL" "$DIAG" "$CHAIN"
 python3 "$QUAL" --self-test
 python3 "$CHAIN" --self-test
@@ -80,7 +84,7 @@ set +eu
 export WM_MPLIB=SYSTEMOPENMPI
 source /usr/lib/openfoam/openfoam2512/etc/bashrc
 export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"
-export LD_LIBRARY_PATH="/opt/scotch-compat/lib:/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:__LIBPATH__"
+export LD_LIBRARY_PATH="/opt/scotch-compat/lib:/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:${LD_LIBRARY_PATH:-}"
 export PKG_CONFIG_PATH="/opt/precice-3.4.1-ompi5/lib/pkgconfig:/opt/precice-3.4.1-ompi5/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
 export PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
