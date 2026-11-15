@@ -50,7 +50,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py hpcc/g0-readonly-audit.py hpcc/g1-readiness-readonly.py hpcc/g1-restart-blocker-audit.py hpcc/g2-g3-offline-gates.py hpcc/g1-phase-b-stage-config.py hpcc/g1-b-real-restart.py hpcc/g2-profile-evidence.py hpcc/g3-offline-quality-monitor.py hpcc/g1b-g2-parallel-triage.py hpcc/g1-b-90873-posthoc-audit.py hpcc/g1-b-native-final-mesh.py hpcc/run-fsi-long-chain-segment.py hpcc/g2-affinity-20-candidate.py hpcc/diagnose-91006-meshco-and-checkpoints.py hpcc/qualify-91006-resume.py hpcc/clean-production/segment.py
+          python3 -m py_compile hpcc/benchmark-short-fsi.py hpcc/audit-thread1-88107.py hpcc/g0-readonly-audit.py hpcc/g1-readiness-readonly.py hpcc/g1-restart-blocker-audit.py hpcc/g2-g3-offline-gates.py hpcc/g1-phase-b-stage-config.py hpcc/g1-b-real-restart.py hpcc/g2-profile-evidence.py hpcc/g3-offline-quality-monitor.py hpcc/g1b-g2-parallel-triage.py hpcc/g1-b-90873-posthoc-audit.py hpcc/g1-b-native-final-mesh.py hpcc/run-fsi-long-chain-segment.py hpcc/g2-affinity-20-candidate.py hpcc/diagnose-91006-meshco-and-checkpoints.py hpcc/qualify-91006-resume.py hpcc/clean-production/segment.py hpcc/clean-production/restart-reference-candidate.py
           python3 hpcc/g0-readonly-audit.py --self-test
           python3 hpcc/g1-readiness-readonly.py --self-test
           python3 hpcc/g1-restart-blocker-audit.py --self-test
@@ -63,6 +63,7 @@ jobs:
           python3 hpcc/diagnose-91006-meshco-and-checkpoints.py --self-test
           python3 hpcc/qualify-91006-resume.py --self-test
           python3 hpcc/clean-production/segment.py --self-test
+          python3 hpcc/clean-production/restart-reference-candidate.py --self-test
           python3 hpcc/clean-production/test-submit-mock.py
           python3 hpcc/g2-profile-evidence.py --self-test
           python3 hpcc/g3-offline-quality-monitor.py --self-test
@@ -72,8 +73,8 @@ jobs:
           bash -n hpcc/submit-fsi-long-chain.sh
           bash -n hpcc/submit-fsi-resume91006.sh
           bash -n hpcc/submit-fsi-recover91410.sh
-          bash -n hpcc/clean-production/compute.sh hpcc/clean-production/submit.sh hpcc/clean-production/monitor.sh
-          ! grep -E '__LIBPATH__|__PKGPATH__|__ARGS__' hpcc/clean-production/compute.sh hpcc/clean-production/submit.sh
+          bash -n hpcc/clean-production/compute.sh hpcc/clean-production/submit.sh hpcc/clean-production/monitor.sh hpcc/clean-production/submit-reference-candidate.sh
+          ! grep -E '__LIBPATH__|__PKGPATH__|__ARGS__' hpcc/clean-production/compute.sh hpcc/clean-production/submit.sh hpcc/clean-production/submit-reference-candidate.sh
           grep -q 'MPI_FLUID_LOADER_PREFLIGHT_PASS' hpcc/clean-production/compute.sh
           ! grep -E '__LIBPATH__|__PKGPATH__' hpcc/submit-fsi-recover91410.sh
           bash -n hpcc/g2-structural-solver-backend-audit.sh
