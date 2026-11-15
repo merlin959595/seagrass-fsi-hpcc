@@ -68,6 +68,7 @@ jobs:
           python3 hpcc/clean-production/audit-restart-cell-motion.py --self-test
           python3 hpcc/clean-production/restart-initial-data-candidate.py --self-test
           python3 hpcc/clean-production/restart-both-initial-fields-candidate.py --self-test
+          python3 hpcc/three-day-proven/run-three-day.py --self-test
           python3 hpcc/clean-production/test-submit-mock.py
           python3 hpcc/g2-profile-evidence.py --self-test
           python3 hpcc/g3-offline-quality-monitor.py --self-test
@@ -77,8 +78,8 @@ jobs:
           bash -n hpcc/submit-fsi-long-chain.sh
           bash -n hpcc/submit-fsi-resume91006.sh
           bash -n hpcc/submit-fsi-recover91410.sh
-          bash -n hpcc/clean-production/compute.sh hpcc/clean-production/submit.sh hpcc/clean-production/monitor.sh hpcc/clean-production/submit-reference-candidate.sh hpcc/clean-production/submit-initial-data-candidate.sh hpcc/clean-production/submit-both-initial-fields-candidate.sh
-          ! grep -E '__LIBPATH__|__PKGPATH__|__ARGS__' hpcc/clean-production/compute.sh hpcc/clean-production/submit.sh hpcc/clean-production/submit-reference-candidate.sh hpcc/clean-production/submit-initial-data-candidate.sh hpcc/clean-production/submit-both-initial-fields-candidate.sh
+          bash -n hpcc/clean-production/compute.sh hpcc/clean-production/submit.sh hpcc/clean-production/monitor.sh hpcc/clean-production/submit-reference-candidate.sh hpcc/clean-production/submit-initial-data-candidate.sh hpcc/clean-production/submit-both-initial-fields-candidate.sh hpcc/three-day-proven/submit-three-day.sh hpcc/three-day-proven/monitor-three-day.sh
+          ! grep -E '__LIBPATH__|__PKGPATH__|__ARGS__' hpcc/clean-production/compute.sh hpcc/clean-production/submit.sh hpcc/clean-production/submit-reference-candidate.sh hpcc/clean-production/submit-initial-data-candidate.sh hpcc/clean-production/submit-both-initial-fields-candidate.sh hpcc/three-day-proven/submit-three-day.sh hpcc/three-day-proven/monitor-three-day.sh
           grep -q 'MPI_FLUID_LOADER_PREFLIGHT_PASS' hpcc/clean-production/compute.sh
           ! grep -E '__LIBPATH__|__PKGPATH__' hpcc/submit-fsi-recover91410.sh
           bash -n hpcc/g2-structural-solver-backend-audit.sh
