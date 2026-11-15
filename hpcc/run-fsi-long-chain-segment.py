@@ -118,8 +118,16 @@ def source_for(base,stage,previous_job):
         if not previous_job:raise RuntimeError("Missing previous Slurm job")
         previous=base/f"fsi-long-stage{stage-1}-job{previous_job}"
         evidence=jread(previous/"FSI_SEGMENT_RESULT.json")
-        if evidence.get("status")!="FSI_LONG_SEGMENT_PASS":
+        if evidence.get("status") not in (
+                "FSI_LONG_SEGMENT_PASS",
+                "FSI_LONG_SEGMENT_PASS_WITH_RESTART_TRANSIENT"):
             raise RuntimeError("Previous chained job was not accepted")
+        if evidence.get("status")=="FSI_LONG_SEGMENT_PASS_WITH_RESTART_TRANSIENT":
+            q=evidence.get("quality",{})
+            if not (q.get("first_window_restart_transient_exception") is True
+                    and q.get("first_window_meshCo_last_record",99)<=.5
+                    and q.get("later_window_meshCo_max",99)<=.5):
+                raise RuntimeError("Previous conditional segment lacks narrow documented meshCo evidence")
         if evidence.get("stage")!=stage-1:
             raise RuntimeError("Previous stage index mismatch")
         if evidence.get("participant_exit_codes")!={"fluid":0,"solid":0}:
@@ -454,8 +462,11 @@ def run(base,stage,previous_job,work,max_windows,timeout):
             raise RuntimeError("Structural restart/kinematic state did not advance")
         check=check_mesh(fluid,work)
         wall=time.monotonic()-start_wall
+        verdict=("FSI_LONG_SEGMENT_PASS_WITH_RESTART_TRANSIENT"
+                 if quality["first_window_restart_transient_exception"]
+                 else "FSI_LONG_SEGMENT_PASS")
         result={
-           "status":"FSI_LONG_SEGMENT_PASS","stage":stage,
+           "status":verdict,"stage":stage,
            "parent_job":meta["parent_job"],
            "parent_time_s":meta["parent_time_s"],
            "read_restart_step":meta["read_restart_step"],
@@ -473,9 +484,9 @@ def run(base,stage,previous_job,work,max_windows,timeout):
            "note":"Approved computation only through stated physical time; two wet oscillations are not inferred."
         }
         jwrite(work/"FSI_SEGMENT_RESULT.json",result)
-        state.update(status="FSI_LONG_SEGMENT_PASS",accepted_time_s=t)
+        state.update(status=verdict,accepted_time_s=t)
         jwrite(work/"STATE.json",state)
-        print("FSI_LONG_SEGMENT_PASS",json.dumps({k:result[k] for k in
+        print(verdict,json.dumps({k:result[k] for k in
             ("stage","final_time_s","accepted_windows","wall_s","s_per_window")}),flush=True)
     except BaseException as exc:
         state.update(status="FSI_LONG_SEGMENT_FAILED",failure=str(exc),
