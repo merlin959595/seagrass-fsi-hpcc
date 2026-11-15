@@ -64,6 +64,7 @@ jobs:
           python3 hpcc/qualify-91006-resume.py --self-test
           python3 hpcc/clean-production/segment.py --self-test
           python3 hpcc/clean-production/restart-reference-candidate.py --self-test
+          python3 hpcc/clean-production/audit-binary-ale-coordinates.py --self-test
           python3 hpcc/clean-production/test-submit-mock.py
           python3 hpcc/g2-profile-evidence.py --self-test
           python3 hpcc/g3-offline-quality-monitor.py --self-test
