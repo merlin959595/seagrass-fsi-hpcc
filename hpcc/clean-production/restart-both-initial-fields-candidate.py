@@ -23,9 +23,10 @@ PREV=ROOT/"clean-production-src/restart-initial-data-candidate.py"
 SOURCE=ROOT/"fsi-long-stage0-job91006/runs/hpcc-implicit-002"
 
 def import_previous():
-    if not PREV.is_file():
+    source=PREV if PREV.is_file() else Path(__file__).resolve().with_name("restart-initial-data-candidate.py")
+    if not source.is_file():
         raise RuntimeError("Missing previously self-tested absolute-displacement candidate")
-    sp=importlib.util.spec_from_file_location("prior_initial_candidate",PREV)
+    sp=importlib.util.spec_from_file_location("prior_initial_candidate",source)
     p=importlib.util.module_from_spec(sp)
     sp.loader.exec_module(p)
     return p
