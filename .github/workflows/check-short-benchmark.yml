@@ -30,6 +30,7 @@ on:
       - 'hpcc/diagnose-91006-meshco-and-checkpoints.py'
       - 'hpcc/qualify-91006-resume.py'
       - 'hpcc/submit-fsi-resume91006.sh'
+      - 'hpcc/submit-fsi-recover91410.sh'
       - 'hpcc/submit-fsi-long-chain.sh'
       - 'hpcc/g2-structural-solver-backend-audit.sh'
       - 'hpcc/g2-affinity-20-candidate.py'
@@ -67,6 +68,8 @@ jobs:
           bash -n hpcc/submit-g1-b-native-final-mesh.sh
           bash -n hpcc/submit-fsi-long-chain.sh
           bash -n hpcc/submit-fsi-resume91006.sh
+          bash -n hpcc/submit-fsi-recover91410.sh
+          ! grep -E '__LIBPATH__|__PKGPATH__' hpcc/submit-fsi-recover91410.sh
           bash -n hpcc/g2-structural-solver-backend-audit.sh
           bash -n hpcc/submit-g2-affinity20.sh
           bash -n hpcc/submit-g1-restart-write10.sh
