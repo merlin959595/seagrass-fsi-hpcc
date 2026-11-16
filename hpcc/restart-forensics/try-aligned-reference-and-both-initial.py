@@ -29,7 +29,9 @@ import sys
 import traceback
 
 BASE=Path.home()/"hpcc-fsi"
-CORE=BASE/"seagrass-fsi-mainline/bin/segment.py"
+# Optional isolated version of OUR driver. Never edit a running job's pinned core.
+CORE=Path(os.environ.get("FSI_ISOLATED_CORE",
+            str(BASE/"seagrass-fsi-mainline/bin/segment.py"))).expanduser()
 SOURCE=BASE/"fsi-long-stage0-job91006/runs/hpcc-implicit-002"
 ORIG_WATCH_FORCE=.0176638208
 N=2
@@ -228,7 +230,7 @@ def main():
     if a.self_test:return self_test()
     b=a.base.expanduser().resolve(strict=True)
     provenance(b)
-    core=imported(b/"seagrass-fsi-mainline/bin/segment.py","frozen_core")
+    core=imported(CORE,"isolated_own_restart_driver")
     core.source_for(b,1,91006,b/"seagrass-fsi-mainline")
     if a.preflight:
         print("FSI_TWO_WINDOW_REFERENCE_ALIGNED_PREFLIGHT_PASS; NO_SLURM_NO_FIELD_WRITES")
