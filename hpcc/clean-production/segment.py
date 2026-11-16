@@ -71,6 +71,41 @@ def latest_time(fluid):
         raise RuntimeError("Fluid MPI checkpoints do not share one time")
     return timestamps[0][0],timestamps
 
+def numeric_time_names(processor):
+    """Sorted time directories; excludes non-time names, no state changes."""
+    if not processor.is_dir():
+        raise RuntimeError(f"Missing fluid processor directory: {processor}")
+    pairs=[]
+    for item in processor.iterdir():
+        if not item.is_dir():continue
+        try:
+            time_value=float(item.name)
+        except ValueError:
+            continue
+        if not math.isfinite(time_value):
+            raise RuntimeError(f"Nonfinite time directory: {item}")
+        pairs.append((time_value,item.name))
+    return [name for _,name in sorted(pairs)]
+
+def verify_staged_fluid_history(source,staged,stage):
+    """Enforce source -> private-copy time-history preservation before solver."""
+    result={}
+    for rank in range(EXPECTED_RANKS):
+        rank_name=f"processor{rank}"
+        a=numeric_time_names(source/"fluid"/rank_name)
+        b=numeric_time_names(staged/"fluid"/rank_name)
+        if not a or a!=b:
+            raise RuntimeError(
+                f"OUR_RESTART_HISTORY_COPY_FAILED {rank_name} "
+                f"source={a} staged={b}")
+        if stage>=1 and len(a)<2:
+            raise RuntimeError(
+                f"OUR_RESTART_HISTORY_INSUFFICIENT {rank_name}: only {a}")
+        result[rank_name]={"source_time_folders":len(a),
+                           "staged_time_folders":len(b),
+                           "latest_time":a[-1]}
+    return result
+
 def segment_folder(stage):
     if not 1<=stage<=12:
         raise RuntimeError("Only segments A-L supported")
@@ -205,6 +240,7 @@ def stage_inputs(base,stage,previous_job,work,max_windows,chain_root=None):
         p=Path(parent)
         return [x for x in names if x=="precice-profiling"] if p.name in ("fluid","solid") else []
     shutil.copytree(source,dst,ignore=ignore,symlinks=False)
+    history=verify_staged_fluid_history(source,dst,stage)
     for child in dst.rglob("precice-*"):
         if child.is_file() and child.suffix in (".log",".json",".csv"):
             child.unlink()
@@ -284,7 +320,9 @@ def stage_inputs(base,stage,previous_job,work,max_windows,chain_root=None):
         "dt_s":DT,"dual_convergence_tol":1e-5,
         "fluid_write_interval_steps":write_every,
         "origin_90873_untouched":True,
-        "source_checkpoint":"0.0325s certified if stage1, otherwise previous accepted clean segment"
+        "source_checkpoint":"0.0325s certified if stage1, otherwise previous accepted clean segment",
+        "fluid_history_preserved_before_solver":True,
+        "fluid_history_per_rank":history
     }
     jwrite(work/"FSI_SEGMENT_STAGE.json",meta)
     return dst,meta
@@ -431,6 +469,45 @@ def validate_cross_job_force(source,log,max_relative_error=.20):
     return {"prior_Fx_N":baseline,"first_computed_Fx_N":first[0],
             "relative_error":rel,"threshold":max_relative_error}
 
+def validate_accepted_force_continuity(source,solid_log,dt,
+                                        max_relative_error=.20):
+    """Validate two accepted *implicit* windows, not just provisional force.
+
+    The previously validated source watch integral supplies the t=restart
+    baseline. This is a deliberately strict startup gate for a new Slurm
+    coupled session, not a general bound for long unsteady vegetation loads.
+    """
+    prior_time,baseline=previous_last_accepted_force(source)
+    if abs(baseline)<1e-12:
+        raise RuntimeError("CROSS_JOB_ACCEPTED_FORCE_BASELINE_ZERO: requires case-specific absolute tolerance")
+    if not solid_log.is_file():
+        raise RuntimeError("CROSS_JOB_ACCEPTED_FORCE_WATCH_MISSING")
+    records={}
+    for line in solid_log.read_text(errors="replace").splitlines():
+        tokens=line.split()
+        if len(tokens)<2:continue
+        try:
+            t,fx=float(tokens[0]),float(tokens[1])
+        except ValueError:continue
+        if math.isfinite(t) and math.isfinite(fx):
+            records[round(t,9)]=fx
+    first=[]
+    for index in (1,2):
+        t=round(index*dt,9)
+        if t not in records:
+            raise RuntimeError(f"CROSS_JOB_ACCEPTED_FORCE_MISSING window={index} rel_time={t}")
+        fx=records[t]
+        err=abs(fx-baseline)/abs(baseline)
+        if not math.isfinite(err) or err>max_relative_error:
+            raise RuntimeError(
+                f"UNPHYSICAL_CROSS_JOB_ACCEPTED_FORCE window={index} "
+                f"source_Fx={baseline:.12g} accepted_Fx={fx:.12g} "
+                f"relative_error={err:.9g} threshold={max_relative_error}")
+        first.append({"window":index,"relative_time_s":t,
+                      "accepted_Fx_N":fx,"relative_error":err})
+    return {"source_relative_time_s":prior_time,"source_Fx_N":baseline,
+            "first_two_windows":first,"threshold":max_relative_error}
+
 def check_mesh(fluid,work):
     command=["mpirun","--oversubscribe","-np","8","--bind-to","none",
              "checkMesh","-case",str(fluid),"-parallel",
@@ -516,6 +593,10 @@ def run(base,stage,previous_job,work,max_windows,timeout,chain_root=None):
                                  allow_transient=(stage==0))
         force_continuity=(validate_cross_job_force(Path(meta["parent_run"]),
                            work/"fluid.log") if stage>=1 else None)
+        accepted_force_continuity=(validate_accepted_force_continuity(
+            Path(meta["parent_run"]),
+            solid/"precice-Solid-watchintegral-Interface-Integral.log",DT)
+            if stage>=1 else None)
         if not (solid/"seagrass.rout").is_file() or not (solid/"kinematic_state.bin").is_file():
             raise RuntimeError("New structural continuation checkpoints missing")
         if (sha(solid/"seagrass.rout")==meta["solid_input_rin_sha256"] or
@@ -537,6 +618,7 @@ def run(base,stage,previous_job,work,max_windows,timeout,chain_root=None):
            "participant_exit_codes":exits,
            "quality":quality,"native_terminal_mesh":check,
            "cross_job_initial_force_continuity":force_continuity,
+           "cross_job_accepted_force_continuity":accepted_force_continuity,
            "wall_s":wall,"s_per_window":wall/meta["accepted_windows"],
            "solid_rout_sha256":sha(solid/"seagrass.rout"),
            "solid_kinematic_sha256":sha(solid/"kinematic_state.bin"),
@@ -640,6 +722,39 @@ def self_test():
             "Time = 0.032625\nforces bladeForces write:\n"
             "Total : (0.018 0 0)\n")
         assert validate_cross_job_force(root,force_log)["relative_error"]<.20
+    with tempfile.TemporaryDirectory() as td:
+        root=Path(td)
+        source=root/"source";staged=root/"staged"
+        for rank in range(EXPECTED_RANKS):
+            for label,which in (("source",source),("staged",staged)):
+                for stamp in ("0.03","0.0325"):
+                    (which/f"fluid/processor{rank}"/stamp).mkdir(parents=True)
+        counts=verify_staged_fluid_history(source,staged,1)
+        assert all(item["source_time_folders"]==2 for item in counts.values())
+        (staged/"fluid/processor0/0.03").rmdir()
+        try:verify_staged_fluid_history(source,staged,1)
+        except RuntimeError as e:
+            assert "OUR_RESTART_HISTORY_COPY_FAILED" in str(e)
+        else:raise AssertionError("Discarded prior time directory not detected")
+        old=source/"solid"
+        old.mkdir()
+        (old/"precice-Solid-watchintegral-Interface-Integral.log").write_text(
+            "Time Fx Fy Fz\n0.030 0.0176638208 0 0\n")
+        watch=root/"accepted-watch.log"
+        watch.write_text(
+            "Time Fx Fy Fz\n0 0.0176638208 0 0\n"
+            "0.000125 0.0721967891 0 0\n"
+            "0.00025 -0.120743427 0 0\n")
+        try:validate_accepted_force_continuity(source,watch,DT)
+        except RuntimeError as e:
+            assert "UNPHYSICAL_CROSS_JOB_ACCEPTED_FORCE" in str(e)
+        else:raise AssertionError("91767 accepted forces incorrectly approved")
+        watch.write_text(
+            "Time Fx Fy Fz\n0 0.0176638208 0 0\n"
+            "0.000125 0.0178807774 0 0\n"
+            "0.00025 0.0181010198 0 0\n")
+        audit=validate_accepted_force_continuity(source,watch,DT)
+        assert len(audit["first_two_windows"])==2
     print("FSI_CLEAN_PRODUCTION_SELF_TEST_PASS")
 
 def main():
