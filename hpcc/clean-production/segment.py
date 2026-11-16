@@ -523,7 +523,12 @@ def validate_accepted_force_continuity(source,solid_log,dt,
             raise RuntimeError(f"CROSS_JOB_ACCEPTED_FORCE_MISSING window={index} rel_time={t}")
         fx=records[t]
         err=abs(fx-baseline)/abs(baseline)
-        if not math.isfinite(err) or err>max_relative_error:
+        # A rapid but genuine physical change can be >20% from the last
+        # source force while perfectly matching uninterrupted same-time data.
+        # Prior-time force is a diagnostic, NOT a gate when matched reference
+        # exists. Keep old check only for legacy calls without a reference.
+        if continuous_reference_log is None and (
+                not math.isfinite(err) or err>max_relative_error):
             raise RuntimeError(
                 f"UNPHYSICAL_CROSS_JOB_ACCEPTED_FORCE window={index} "
                 f"source_Fx={baseline:.12g} accepted_Fx={fx:.12g} "
@@ -832,6 +837,25 @@ def self_test():
         except RuntimeError as e:
             assert "UNPHYSICAL_CROSS_JOB_VS_CONTINUOUS" in str(e)
         else:raise AssertionError("Accepted scientific mismatch vs 91543")
+        # A genuine fast force increase is allowed if it agrees at the
+        # same physical time; old baseline-based gate would reject it.
+        watch.write_text(
+            "Time Fx Fy Fz\n"
+            "0.000125 0.02600000 0 0\n"
+            "0.000250 0.02800000 0 0\n")
+        reference.write_text(
+            "Time Fx Fy Fz\n"
+            "0.030125 0.02600000 0 0\n"
+            "0.030250 0.02800000 0 0\n")
+        rapid=validate_accepted_force_continuity(
+            source,watch,DT,continuous_reference_log=reference,
+            absolute_restart_time_s=.0325)
+        assert all(x["relative_error_to_continuous"]==0
+                   for x in rapid["first_two_windows"])
+        watch.write_text(
+            "Time Fx Fy Fz\n"
+            "0.000125 0.018 0 0\n"
+            "0.000250 0.018 0 0\n")
         reference.write_text("Time Fx\n0.030125 0.018\n")
         try:validate_accepted_force_continuity(
             source,watch,DT,continuous_reference_log=reference,
