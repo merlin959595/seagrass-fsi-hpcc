@@ -78,6 +78,21 @@ python3 "$OUT" --base "$HOME/hpcc-fsi"
 This only reads saved logs, copies, and watch integrals. It does not
 modify 91543, 91767, the 91006 checkpoint, solver sources, or scheduler.
 
+## 91819 falsification: retaining all 15 source time directories is NOT enough
+
+**Actual HPCC evidence supplied 2026-11-16**:
+- 91819 staged 15/15 numeric source history time directories in all 8 fluid MPI ranks and disabled `purgeWrite` ONLY in the isolated trial case.
+- The amended driver used the pinned private core; self-test + preflight passed, and no automatic continuation was submitted.
+- Source 91006 end Fx = 0.0176638208 N; 91819 first computed Fx = **11.515278323918 N**, identical to 91767.
+- First accepted watch: **0.0721967879 N** versus uninterrupted 91543 **0.0178807774 N** (relative difference 303.8%).
+- Second accepted watch: **-0.120743419 N** versus 91543 **0.0181010198 N** (relative difference 767.1%, opposite sign).
+- Mesh Courant peak = 0.32927715580634. `fluid_FPE=false`, no solid nonlinear divergence.
+- Our numerical force guard correctly marked 91819 `FSI_LONG_SEGMENT_FAILED`, even though both implicit windows produced watch-integral rows; no `FSI_SEGMENT_RESULT.json` was approved. This is a deliberate scientific rejection, **not proof the subprocesses crashed**.
+
+**Conclusion:** The time-directory-copy defect was real but is **not a sufficient cause** of the numerical discontinuity. In particular, preserving directories does not imply in-memory oldPoints/mesh flux/history or preCICE iteration/state are reconstructed on new process startup. The hypothesis "copy 15 histories fixes restart" has been disproven for this case. Do not submit that same experiment again.
+
+**Next investigation (read-only first):** Check exactly which stored histories are one native time-step apart, OpenFOAM ddt and ALE settings, whether frame references and CCX persistent state are restored in consistent units/time, and the first flow-step force decomposition. Inspect the 91543 continuous reference without altering its files. Do not alter OpenFOAM/preCICE/CalculiX/adapters or restart a 72-hour job.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
