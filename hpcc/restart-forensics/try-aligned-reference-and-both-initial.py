@@ -167,7 +167,9 @@ def self_test():
         raise StopBeforeSolver()
     with tempfile.TemporaryDirectory(prefix="crossjob-execution-path-") as tmp:
         base=Path(tmp)
+        sentinel=base/"isolated-corrected-segment.py"
         with mock.patch.dict(os.environ,{"SLURM_JOB_ID":"MOCK_NO_SLURM"}), \
+             mock.patch(__name__+".CORE",sentinel), \
              mock.patch(__name__+".provenance",return_value=base), \
              mock.patch(__name__+".imported",side_effect=capture):
             try:
@@ -176,7 +178,7 @@ def self_test():
                 pass
             else:
                 raise AssertionError("Execution-path probe reached beyond core loader")
-    assert loaded==[(CORE,"isolated_own_restart_driver")], loaded
+    assert loaded==[(sentinel,"isolated_own_restart_driver")], loaded
     print("FSI_ACTUAL_RUN_CORE_PIN_REGRESSION_PASS")
     print("FSI_RESTART_ALIGNED_REFERENCE_AND_BOTH_INITIAL_FIELDS_SELFTEST_PASS")
 
