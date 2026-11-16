@@ -2,8 +2,10 @@
 # Explicit opt-in only: one 2-window validation. Never auto-start production.
 set -euo pipefail
 BASE="$HOME/hpcc-fsi"
-SRC="$BASE/crossjob-fix-20261116/try-incremental-displacement-restart.py"
-CORE="$BASE/crossjob-fix-20261116/segment.py"
+# Explicit isolated source paths can be pinned outside any existing
+# source directory; never replace scripts while another job is using them.
+SRC="${FSI_DELTA_SOURCE:-$BASE/crossjob-fix-20261116/try-incremental-displacement-restart.py}"
+CORE="${FSI_DELTA_CORE:-$BASE/crossjob-fix-20261116/segment.py}"
 SIF="$HOME/seagrass-fsi-ompi507-scotch-time.sif"
 ROOT="$BASE/crossjob-fix-20261116/delta-2window"
 for f in "$SRC" "$CORE" "$SIF";do
