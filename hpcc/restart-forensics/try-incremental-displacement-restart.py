@@ -134,30 +134,58 @@ def watch(path):
     return result
 
 
-def compare_accepted(reference, candidate):
-    cont = watch(reference)
-    new = watch(candidate)
-    result = []
-    for n in (1, 2):
-        rel = round(n*DT, 9)
-        cont_rel = round(.030 + rel, 9)  # continuous 91543 begins at .0025
-        if rel not in new or cont_rel not in cont:
+def compare_accepted(reference, candidate, source=None):
+    """Compare same-physical-time Fx AND each window's delta displacement.
+
+    A DisplacementDelta integral is *not* a 30-unit absolute displacement:
+    its value is a single window's displacement change, and resets
+    at the start of every implicit coupling time window.
+    """
+    cont=watch(reference)
+    trial=watch(candidate)
+    source_d=None
+    if source is not None:
+        source_rows=watch(source)
+        source_d=source_rows.get(round(.030,9))
+        if source_d is None:
+            raise RuntimeError("SOURCE_ABSOLUTE_DISPLACEMENT_MISSING_AT_0.0325")
+    total_delta={0:0.,2:0.}
+    rows=[]
+    for n in (1,2):
+        t=round(n*DT,9)
+        reference_t=round(.030+t,9)
+        previous_t=round(reference_t-DT,9)
+        if t not in trial or reference_t not in cont or previous_t not in cont:
             raise RuntimeError(
-                f"Unaccepted/missing matched window n={n} candidate={rel} reference={cont_rel}")
-        f = new[rel]
-        r = cont[cont_rel]
-        fx_err = abs(f[0]-r[0])/max(abs(r[0]), 1e-12)
-        if not all(math.isfinite(v) for v in (fx_err, *f, *r)):
-            raise RuntimeError("Nonfinite accepted state")
-        # The watch is a surface integral, not a local tip displacement.
-        result.append({"window":n,"physical_time_s":START+rel,
-                       "candidate_Fx_N":f[0],"continuous_Fx_N":r[0],
-                       "Fx_rel_error":fx_err,
-                       "candidate_Disp0_integral":f[3],
-                       "continuous_Disp0_integral":r[3],
-                       "candidate_Disp2_integral":f[5],
-                       "continuous_Disp2_integral":r[5]})
-    return result
+                f"Missing accepted matched window n={n} trial={t} reference={reference_t}")
+        values=trial[t]
+        reference_values=cont[reference_t]
+        prev_values=cont[previous_t]
+        if not all(math.isfinite(v) for v in (*values,*reference_values,*prev_values)):
+            raise RuntimeError("NONFINITE_ACCEPTED_FSI_FIELDS")
+        fx_error=abs(values[0]-reference_values[0])/max(abs(reference_values[0]),1e-12)
+        line={"window":n,"physical_time_s":START+t,
+              "candidate_Fx_N":values[0],"continuous_Fx_N":reference_values[0],
+              "Fx_rel_error":fx_error}
+        for axis in (0,2):
+            delta=values[3+axis]
+            ref_delta=reference_values[3+axis]-prev_values[3+axis]
+            total_delta[axis]+=delta
+            diff=abs(delta-ref_delta)/max(abs(ref_delta),1e-10)
+            line.update({
+                f"delta{axis}_integral":delta,
+                f"continuous_delta{axis}_integral":ref_delta,
+                f"delta{axis}_rel_error":diff,
+            })
+            if source_d is not None:
+                absolute=source_d[3+axis]+total_delta[axis]
+                line.update({
+                    f"reconstructed_absolute{axis}_integral":absolute,
+                    f"continuous_absolute{axis}_integral":reference_values[3+axis],
+                    f"absolute{axis}_integral_difference":absolute-reference_values[3+axis],
+                })
+        rows.append(line)
+    return rows
 
 
 def first_native_meshco(path, physical_time):
@@ -310,7 +338,8 @@ def trial(base, work, corefile):
     try:
         accepted = compare_accepted(
             base/"three-day-proven/long-job-91543/runs/hpcc-implicit-002/solid"/WATCH,
-            work/"runs/hpcc-implicit-002/solid"/WATCH)
+            work/"runs/hpcc-implicit-002/solid"/WATCH,
+            source=base/"fsi-long-stage0-job91006/runs/hpcc-implicit-002/solid"/WATCH)
     except Exception as ex:
         watch_error = repr(ex)
     meshco = first_meshco_gate(base, work)
@@ -323,7 +352,9 @@ def trial(base, work, corefile):
         and native.get("native_terminal_mesh",{}).get("status") == "PASS"
         and quality.get("max_mesh_Co", math.inf) <= .5
         and quality.get("max_fluid_Co", math.inf) <= .5
-        and all(row["Fx_rel_error"] <= .01 for row in accepted)
+        and all(row["Fx_rel_error"] <= .01 and
+                row["delta0_rel_error"] <= .01 and
+                row["delta2_rel_error"] <= .01 for row in accepted)
         and meshco["tenfold_native_startup_meshco_gate"])
     report = {
         "status": "INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS" if correct
@@ -397,15 +428,29 @@ def self_test():
     with tempfile.TemporaryDirectory() as temp:
         a=Path(temp)/"ref.log"
         b=Path(temp)/"trial.log"
-        a.write_text("Time Force0 Force1 Force2 Displacement0 Displacement1 Displacement2\n"
-                     "0.030125 0.018 0 0 30.1 0 -1.5\n"
-                     "0.030250 0.019 0 0 30.2 0 -1.6\n")
-        b.write_text("Time Force0 Force1 Force2 Displacement0 Displacement1 Displacement2\n"
-                     "0.000125 0.018 0 0 30.1 0 -1.5\n"
-                     "0.000250 0.019 0 0 30.2 0 -1.6\n")
-        assert all(x["Fx_rel_error"]<1e-12 for x in compare_accepted(a,b))
+        origin=Path(temp)/"source.log"
+        origin.write_text(
+            "Time Fx Fy Fz Disp0 Disp1 Disp2\n"
+            "0.030000 0.017 0 0 30.0 0 -1.4\n")
+        a.write_text(
+            "Time Fx Fy Fz Disp0 Disp1 Disp2\n"
+            "0.030000 0.017 0 0 30.0 0 -1.4\n"
+            "0.030125 0.018 0 0 30.1 0 -1.5\n"
+            "0.030250 0.019 0 0 30.2 0 -1.6\n")
+        b.write_text(
+            "Time Fx Fy Fz Delta0 Delta1 Delta2\n"
+            "0.000125 0.018 0 0 0.1 0 -0.1\n"
+            "0.000250 0.019 0 0 0.1 0 -0.1\n")
+        rows=compare_accepted(a,b,origin)
+        assert all(x["Fx_rel_error"]<1e-12 for x in rows)
+        assert all(x["delta0_rel_error"]<1e-9 for x in rows)
+        assert all(x["delta2_rel_error"]<1e-9 for x in rows)
+        assert abs(rows[-1]["reconstructed_absolute0_integral"]-30.2)<1e-8
+        assert abs(rows[-1]["reconstructed_absolute2_integral"]+1.6)<1e-8
         b.write_text(b.read_text().replace("0.018 0","0.072 0"))
         assert compare_accepted(a,b)[0]["Fx_rel_error"]>=2.99
+        b.write_text(b.read_text().replace("0.1 0 -0.1","0.2 0 -0.1"))
+        assert compare_accepted(a,b)[0]["delta0_rel_error"]>0.99
     with tempfile.TemporaryDirectory() as temp:
         root=Path(temp)
         ref=root/"ref-fluid.log"
