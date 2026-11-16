@@ -2,6 +2,12 @@
 
 Cloud-build a Linux AMD64 container for the University of Macau HPCC.
 
+## 科研计算经验库 / Research computing lessons
+
+跨 Slurm 作业双向 FSI 续算等复杂问题的长期经验集中保存在 [knowledge-base](knowledge-base/README.md)。当前最重要的案例是 [2026-11-16 海草 ALE–FSI 跨作业重启事故与修复验收](knowledge-base/cases/2026-11-16-cross-job-ale-fsi-restart.md)，可复用流程见 [增量位移接续 SOP](knowledge-base/playbooks/delta-fsi-continuation.md)。
+
+**状态提示：** 92264 仅有第一窗口的真实受力验收证据；完成两窗口、再跨进程 20 窗口和第二次跨作业验证前，不能声称完全修复，更不能启动自动三天级接力。
+
 ## Target versions
 
 - OpenFOAM.com v2512 (official `opencfd/openfoam-default:2512`)
