@@ -356,6 +356,68 @@ reference, rather than changing the mesh/FSI numerical solver.
 Do not modify 91006, 91543, any vendor source or run new FSI
 until these read-only discriminators are checked.
 
+## 2026-11-16: Important adapter source code discovery; custom CCX semantics remain unverified
+
+User provided configuration of 91878:
+- `DisplacementInterface`: `mesh Fluid-Mesh-Nodes`,
+  `patches (bladeInterface)`, `locations faceNodes`,
+  `readData (Displacement)`.
+- `ForceInterface`: `mesh Fluid-Mesh-Faces`,
+  `patches (bladeInterface)`, `locations faceCenters`,
+  `writeData (Force)`. These two meshes/locations are expected
+  for node displacement + face force mapping, not themselves a mistake.
+- `restartFromDeformed false;` and preCICE displacement exchange
+  `initialize=yes`, Force exchange without `initialize=yes`.
+- `*RESTART,READ,STEP=3`, `*DYNAMIC,DIRECT` time increment 0.000125,
+  new total step 0.00025 (stdout is concatenated by terminal paste);
+  requires source CalculiX .rout step-chain validation.
+- `restart_reference/Solid-Mesh.coords`: header `7305 3`, followed
+  by three coordinates per node, one coordinate per line. First values
+  begin near original x=-0.0002, y=-0.005, z=0; file size 419105 bytes.
+  This records an **original structural reference file**, not
+  necessarily the actual preCICE mesh registered by restarted CCX.
+
+**New high-priority code-level finding**:
+- Standard CCX adapter **v2.20.2** `adapter/CCXHelpers.c`
+  `getNodeCoordinates()` explicitly constructs preCICE node vertices
+  using `co[nodeIdx*3+j] + vold[nodeIdx*mt+j+1]`.
+  https://github.com/precice/calculix-adapter/blob/v2.20.2/adapter/CCXHelpers.c
+- `adapter/PreciceInterface.c` `PreciceInterface_ConfigureNodesMesh()`
+  uses `getNodeCoordinates(..., sim->co, sim->vold, ...)`
+  and calls `precicec_setMeshVertices` with the returned values.
+  https://github.com/precice/calculix-adapter/blob/v2.20.2/adapter/PreciceInterface.c
+- OpenFOAM adapter **v1.4.0** `Interface.C` faceNodes
+  under `restartFromDeformed=false` registers
+  `boundary mesh localPoints() - pointDisplacement.boundaryField()`,
+  i.e. original fluid reference coordinates;
+  `true` uses the current deformed coordinates.
+  https://github.com/precice/openfoam-adapter/blob/v1.4.0/Interface.C
+
+**Potential mismatch**: with unmodified standard CCX adapter semantics,
+CCX provides **deformed Solid-Mesh = co + vold** while
+OpenFOAM with `restartFromDeformed=false` provides **original
+Fluid-Mesh-Nodes**. This is an explicit *source-level*
+risk in the previously proposed “reference-aligned” test;
+the description “false matches CCX original reference”
+was **unverified and likely wrong**. However this project has
+`libseagrassReferenceRestart.so`, a custom
+`ccx_preCICE_persistent_v2` executable and
+`SG_REFERENCE_DIR` pointing to the frozen coords file.
+Until we inspect what the custom library/executable actually does to
+`co` and `vold` *before* `PreciceInterface_ConfigureNodesMesh()`,
+we must NOT claim actual interface mismatch is proven.
+**Do not flip restartFromDeformed blindly**: historical true+
+initialized displacement variants 91538/91542 also failed.
+An independent, read-only audit of the custom native source and startup
+logs should precede any further numeric experiment.
+
+**Important**: calculations via RBF do NOT require fluid and solid
+nodes to have equal counts or one-to-one coordinates. We require
+matching *geometric frames* of corresponding surfaces, not exact
+nodal index/point equality.
+
+No new FSI/Slurm jobs; source 91006 and live 91543 untouched.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
