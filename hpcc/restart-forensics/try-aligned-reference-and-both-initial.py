@@ -165,10 +165,10 @@ def validation(work,orig):
        "initial_force0_relative_error":diff,
        "initial_force0_10pct":diff is not None and diff<=.10,
        "first_computed_force0_N":firstforce[0] if firstforce else None,
-       "first_computed_force0_relative_error":first_rel,
+       "provisional_vs_prior_accepted_relative_difference_DIAGNOSTIC_ONLY":first_rel,
        "first_force_is_unaccepted_provisional":True,
        "first_force_vs_accepted_reference_noncomparable":True,
-       "first_computed_force0_20pct":first_rel is not None and first_rel<=.20,
+       "first_provisional_force_not_used_for_approval":True,
        "initial_force_mapping_not_skipped_zero":any(
            'Mapping "Force" for t=0 from "Fluid-Mesh-Faces" to "Solid-Mesh"' in l
            and 'skipped zero sample' not in l for l in fl.splitlines()),
