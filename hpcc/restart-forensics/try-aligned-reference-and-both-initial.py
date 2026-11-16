@@ -112,6 +112,7 @@ def validation(work,orig):
     fresh=work/"runs/hpcc-implicit-002"
     original=orig/"solid/precice-Solid-watchintegral-Interface-Integral.log"
     current=fresh/"solid/precice-Solid-watchintegral-Interface-Integral.log"
+    reference_live=BASE/"three-day-proven/long-job-91543/runs/hpcc-implicit-002/solid/precice-Solid-watchintegral-Interface-Integral.log"
     def vals(p):
         if not p.is_file():return []
         rows=[]
@@ -123,6 +124,24 @@ def validation(work,orig):
         return rows
     old=[fx for t,fx in vals(original) if abs(t-.03)<1e-8]
     new=[fx for t,fx in vals(current) if abs(t)<1e-9]
+    new_watch=vals(current)
+    continuous_watch=vals(reference_live)
+    first_two=[]
+    for i in (1,2):
+        rel_time=round(i*DT,9)
+        trial_values=[fx for t,fx in new_watch if abs(t-rel_time)<1e-9]
+        control_values=[fx for t,fx in continuous_watch
+                        if abs(t-(.03+rel_time))<1e-9]
+        trial_value=trial_values[-1] if trial_values else None
+        control_value=control_values[-1] if control_values else None
+        rel_to_continuous=(abs(trial_value-control_value)/abs(control_value)
+                           if trial_value is not None and control_value is not None
+                           and abs(control_value)>1e-12 else None)
+        first_two.append({"window":i,"trial_accepted_Fx_N":trial_value,
+                          "continuous_91543_Fx_N":control_value,
+                          "relative_difference":rel_to_continuous})
+    match_control=all(d["relative_difference"] is not None and
+                      d["relative_difference"]<=.20 for d in first_two)
     target=old[-1] if old else None
     initial=new[0] if new else None
     diff=(abs(initial-target)/abs(target)
@@ -138,6 +157,8 @@ def validation(work,orig):
        r'Mesh Courant Number mean:\s*[-+\deE.]+\s+max:\s*([-+\deE.]+)',fl)]
     return {
        "certified_last_force0_N":target,
+       "accepted_force_two_windows":first_two,
+       "first_two_match_uninterrupted_91543_within_20pct":match_control,
        "initialized_force0_N":initial,
        "initial_force0_relative_error":diff,
        "initial_force0_10pct":diff is not None and diff<=.10,
@@ -223,6 +244,26 @@ def run(base,work):
     original_stage=core.stage_inputs
     def stage_inputs(b,stage,parent,dest,max_windows,chain_root=None):
         out,meta=original_stage(b,stage,parent,dest,max_windows,chain_root)
+        # The first 91767 trial used the old driver, which copied only one
+        # time slice and discarded the earlier 14 history directories.
+        # Fail closed if any source history directory did not survive into
+        # our private copy. This check happens BEFORE solver launch.
+        src=Path(meta["parent_run"])
+        hist=core.verify_staged_fluid_history(src,out,stage)
+        if any(info["staged_time_folders"]<10 for info in hist.values()):
+            raise RuntimeError("91767_REPAIR_REQUIRES_SOURCE_15_TIME_FOLDERS_PER_RANK")
+        # Keep the history through the two-window trial for a meaningful
+        # post-run forensic comparison. IO retention only, not physics.
+        control=out/"fluid/system/controlDict"
+        control_before=control.read_text()
+        control_after,changes=re.subn(
+            r"(\bpurgeWrite\s+)\d+(\s*;)",
+            r"\g<1>0\2",control_before)
+        if changes!=1:
+            raise RuntimeError("Expected one fluid purgeWrite control")
+        control.write_text(control_after)
+        meta["staged_history_per_rank"]=hist
+        meta["isolated_purgeWrite"]=0
         xml=out/"precice-config.xml"
         xml.write_text(patch_xml(xml.read_text()))
         foam=out/"fluid/system/preciceDict"
@@ -255,6 +296,7 @@ def run(base,work):
          and q.get("max_mesh_Co",math.inf)<=.5
          and v["initial_force0_10pct"]
          and v["first_computed_force0_20pct"]
+         and v["first_two_match_uninterrupted_91543_within_20pct"]
          and v["initial_force_mapping_not_skipped_zero"]
          and v["initial_displacement_mapping_not_skipped_zero"]
          and not v["solid_nonlinear_divergence"]
