@@ -476,7 +476,10 @@ def validate_cross_job_force(source,log,max_relative_error=.20):
     }
 
 def validate_accepted_force_continuity(source,solid_log,dt,
-                                        max_relative_error=.20):
+                                        max_relative_error=.20,
+                                        continuous_reference_log=None,
+                                        absolute_restart_time_s=None,
+                                        reference_origin_time_s=.0025):
     """Validate two accepted *implicit* windows, not just provisional force.
 
     The previously validated source watch integral supplies the t=restart
@@ -497,6 +500,22 @@ def validate_accepted_force_continuity(source,solid_log,dt,
         except ValueError:continue
         if math.isfinite(t) and math.isfinite(fx):
             records[round(t,9)]=fx
+    # A restarted and continuous case can have different relative clocks.
+    # Never compare different physical instants or assume the previous Fx
+    # stays constant as a scientific reference for the next two windows.
+    continuous_records={}
+    if continuous_reference_log is not None:
+        if absolute_restart_time_s is None:
+            raise RuntimeError("CONTINUOUS_REFERENCE_NEEDS_ABSOLUTE_RESTART_TIME")
+        if not continuous_reference_log.is_file():
+            raise RuntimeError("CONTINUOUS_REFERENCE_WATCH_MISSING")
+        for line in continuous_reference_log.read_text(errors="replace").splitlines():
+            cols=line.split()
+            if len(cols)<2:continue
+            try:time_ref,fx_ref=float(cols[0]),float(cols[1])
+            except ValueError:continue
+            if math.isfinite(time_ref) and math.isfinite(fx_ref):
+                continuous_records[round(time_ref,9)]=fx_ref
     first=[]
     for index in (1,2):
         t=round(index*dt,9)
@@ -509,9 +528,30 @@ def validate_accepted_force_continuity(source,solid_log,dt,
                 f"UNPHYSICAL_CROSS_JOB_ACCEPTED_FORCE window={index} "
                 f"source_Fx={baseline:.12g} accepted_Fx={fx:.12g} "
                 f"relative_error={err:.9g} threshold={max_relative_error}")
-        first.append({"window":index,"relative_time_s":t,
-                      "accepted_Fx_N":fx,"relative_error":err})
+        comparison={"window":index,"relative_time_s":t,
+                    "accepted_Fx_N":fx,"relative_error_to_prior":err}
+        if continuous_reference_log is not None:
+            phys=absolute_restart_time_s+t
+            reference_t=round(phys-reference_origin_time_s,9)
+            if reference_t not in continuous_records:
+                raise RuntimeError(
+                    f"CONTINUOUS_REFERENCE_MISSING physical_time={phys:.9g} "
+                    f"reference_relative_time={reference_t:.9g}")
+            expected=continuous_records[reference_t]
+            if abs(expected)<1e-12:
+                raise RuntimeError("CONTINUOUS_REFERENCE_FORCE_ZERO_REQUIRES_ABSOLUTE_TOL")
+            delta=abs(fx-expected)/abs(expected)
+            comparison.update(physical_time_s=phys,continuous_reference_Fx_N=expected,
+                              relative_error_to_continuous=delta)
+            if delta>max_relative_error:
+                raise RuntimeError(
+                    f"UNPHYSICAL_CROSS_JOB_VS_CONTINUOUS window={index} "
+                    f"physical_time={phys:.9g} reference_Fx={expected:.12g} "
+                    f"accepted_Fx={fx:.12g} relative_error={delta:.9g} "
+                    f"threshold={max_relative_error}")
+        first.append(comparison)
     return {"source_relative_time_s":prior_time,"source_Fx_N":baseline,
+            "continuous_reference_checked":continuous_reference_log is not None,
             "first_two_windows":first,"threshold":max_relative_error}
 
 def check_mesh(fluid,work):
@@ -601,7 +641,12 @@ def run(base,stage,previous_job,work,max_windows,timeout,chain_root=None):
                            work/"fluid.log") if stage>=1 else None)
         accepted_force_continuity=(validate_accepted_force_continuity(
             Path(meta["parent_run"]),
-            solid/"precice-Solid-watchintegral-Interface-Integral.log",DT)
+            solid/"precice-Solid-watchintegral-Interface-Integral.log",DT,
+            continuous_reference_log=(
+                base/"three-day-proven/long-job-91543/runs/hpcc-implicit-002/"
+                     "solid/precice-Solid-watchintegral-Interface-Integral.log"
+                if stage==1 else None),
+            absolute_restart_time_s=meta["parent_time_s"])
             if stage>=1 else None)
         if not (solid/"seagrass.rout").is_file() or not (solid/"kinematic_state.bin").is_file():
             raise RuntimeError("New structural continuation checkpoints missing")
@@ -763,6 +808,36 @@ def self_test():
             "0.00025 0.0181010198 0 0\n")
         audit=validate_accepted_force_continuity(source,watch,DT)
         assert len(audit["first_two_windows"])==2
+        reference=root/"continuous-91543-watch.log"
+        reference.write_text(
+            "Time Fx Fy Fz\n"
+            "0.030125 0.0178807774 0 0\n"
+            "0.030250 0.0181010198 0 0\n")
+        confirmed=validate_accepted_force_continuity(
+            source,watch,DT,continuous_reference_log=reference,
+            absolute_restart_time_s=.0325)
+        assert confirmed["continuous_reference_checked"]
+        assert all(x["relative_error_to_continuous"]<.01
+                   for x in confirmed["first_two_windows"])
+        # A plausible source-vs-next force can still disagree badly with
+        # uninterrupted same-time reference. Old code falsely passed this.
+        reference.write_text(
+            "Time Fx Fy Fz\n"
+            "0.030125 0.0300000 0 0\n"
+            "0.030250 0.0300000 0 0\n")
+        try:validate_accepted_force_continuity(
+            source,watch,DT,continuous_reference_log=reference,
+            absolute_restart_time_s=.0325)
+        except RuntimeError as e:
+            assert "UNPHYSICAL_CROSS_JOB_VS_CONTINUOUS" in str(e)
+        else:raise AssertionError("Accepted scientific mismatch vs 91543")
+        reference.write_text("Time Fx\n0.030125 0.018\n")
+        try:validate_accepted_force_continuity(
+            source,watch,DT,continuous_reference_log=reference,
+            absolute_restart_time_s=.0325)
+        except RuntimeError as e:
+            assert "CONTINUOUS_REFERENCE_MISSING" in str(e)
+        else:raise AssertionError("Accepted missing continuous second window")
     print("FSI_CLEAN_PRODUCTION_SELF_TEST_PASS")
 
 def main():
