@@ -41,7 +41,8 @@ ACTIVE="$(squeue -h -u "$USER" -n fsi-delta20,fsi-delta2b -o '%j:%T')"
 if [[ -n "$ACTIVE" ]];then
   echo "Another delta stage queued or running: $ACTIVE" >&2; exit 6
 fi
-if [[ -n "$(squeue -h -j "$PREV" -o '%T')" ]];then
+PARENT_QUEUE="$(squeue -h -j "$PREV" -o '%T' 2>/dev/null || true)"
+if [[ -n "$PARENT_QUEUE" ]];then
   echo "Parent job $PREV still active" >&2;exit 7
 fi
 mkdir -p "$OUTROOT"
@@ -77,7 +78,7 @@ env -u BASH_ENV -u ENV singularity exec --cleanenv \
 SBATCH
 bash -n "$BATCH"
 EXCLUDE=()
-LIVE="$(squeue -h -j 91543 -o '%T %N')"
+LIVE="$(squeue -h -j 91543 -o '%T %N' 2>/dev/null || true)"
 if [[ "$LIVE" == RUNNING\ * ]];then
   NODE="$(echo "$LIVE"|awk '{print $2}')"
   if [[ -z "$NODE" || "$NODE" == "(null)" || "$NODE" == "None" ]];then
