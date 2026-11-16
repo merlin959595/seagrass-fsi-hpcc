@@ -36,6 +36,49 @@ if grep -Eq '__LIBPATH__|__PKGPATH__' "$SOURCE/compute.sh"; then
   exit 5
 fi
 python3 "$SOURCE/segment.py" --self-test
+# A frozen checkpoint and a clean Slurm dependency graph do NOT establish
+# numerical continuity across a new preCICE/CalculiX process.
+# Until a separate real coupled restart has passed native force/mesh checks,
+# never queue multi-day stage A-L jobs from 91006's t=0.0325 checkpoint.
+PROOF="$BASE/FSI_CROSS_JOB_NATIVE_RESTART_PROOF.json"
+if [[ ! -s "$PROOF" ]]; then
+  echo "CROSS_JOB_CHAIN_BLOCKED: no native verified cross-process restart proof" >&2
+  echo "Run an isolated 2-window test, then a longer restart comparison; do not change solvers." >&2
+  exit 61
+fi
+python3 - "$PROOF" "$BASE" <<'PY_NATIVE'
+import hashlib,json,math,pathlib,sys
+proof=json.loads(pathlib.Path(sys.argv[1]).read_text())
+base=pathlib.Path(sys.argv[2])
+source=base/"fsi-long-stage0-job91006/runs/hpcc-implicit-002"
+def require(cond,msg):
+    if not cond: raise SystemExit("CROSS_JOB_CHAIN_BLOCKED: "+msg)
+require(proof.get("status")=="FSI_CROSS_JOB_NATIVE_RESTART_PASS",
+        "native cross-process continuity not certified")
+require(proof.get("source_job")==91006 and
+        abs(float(proof.get("restart_from_time_s",-1))-.0325)<1e-10,
+        "wrong source job or physical time")
+require(int(proof.get("verified_coupled_windows",0))>=20,
+        "insufficient real coupled restart windows")
+require(proof.get("participant_exit_codes")=={"fluid":0,"solid":0},
+        "restart participants have not both exited normally")
+require(proof.get("native_terminal_mesh_status")=="PASS",
+        "native terminal mesh not checked")
+for key,lim in (("max_mesh_Co",.5),("max_fluid_Co",.5),
+                ("initial_force_rel_error",.1),("first_computed_force_rel_error",.2)):
+    try: v=float(proof[key])
+    except (KeyError,ValueError,TypeError): raise SystemExit(
+        "CROSS_JOB_CHAIN_BLOCKED: missing "+key)
+    require(math.isfinite(v) and 0<=v<=lim,"invalid numerical gate "+key)
+h=hashlib.sha256
+for key,path in (
+    ("solid_rout_sha256",source/"solid/seagrass.rout"),
+    ("solid_kinematic_sha256",source/"solid/kinematic_state.bin"),
+    ("fluid_proc0_points_sha256",source/"fluid/processor0/0.0325/polyMesh/points")):
+    require(path.is_file() and h(path.read_bytes()).hexdigest()==proof.get(key),
+            "source checkpoint hash mismatch "+key)
+print("CROSS_JOB_NATIVE_RESTART_PROOF_VALIDATED")
+PY_NATIVE
 python3 - "$BASE/FSI_91006_RESUME_CERT.json" <<'PY'
 import json,sys
 p=json.load(open(sys.argv[1]))
