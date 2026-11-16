@@ -11,10 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Shell syntax
-        run: bash -n hpcc/clean-production/submit.sh hpcc/clean-production/compute.sh
+        run: bash -n hpcc/clean-production/submit.sh hpcc/clean-production/compute.sh hpcc/restart-forensics/submit-our-restart-2window-20261116.sh
       - name: Python syntax
-        run: python3 -m py_compile hpcc/clean-production/segment.py hpcc/clean-production/test-submit-mock.py
+        run: python3 -m py_compile hpcc/clean-production/segment.py hpcc/clean-production/test-submit-mock.py hpcc/restart-forensics/try-aligned-reference-and-both-initial.py
       - name: Restart quality policy unit tests
         run: python3 hpcc/clean-production/segment.py --self-test
+      - name: Two-window candidate inputs self-test
+        run: python3 hpcc/restart-forensics/try-aligned-reference-and-both-initial.py --self-test
       - name: Mocked Slurm submission regression
         run: python3 hpcc/clean-production/test-submit-mock.py
