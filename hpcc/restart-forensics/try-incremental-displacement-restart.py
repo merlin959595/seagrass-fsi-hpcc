@@ -160,6 +160,49 @@ def compare_accepted(reference, candidate):
     return result
 
 
+def first_native_meshco(path, physical_time):
+    """Earliest Mesh Courant of the target native fluid step, not any later
+    implicit iteration's settled meshCo. Never compare different times."""
+    if not path.is_file():
+        return None
+    active = False
+    with path.open(errors="replace") as stream:
+        for line in stream:
+            m = re.match(r"^\s*Time\s*=\s*([0-9.eE+-]+)\s*$", line)
+            if m:
+                t = float(m.group(1))
+                if active:
+                    return None
+                active = abs(t-physical_time)<5e-10
+                if t>physical_time+1e-8:
+                    return None
+            elif active and "Mesh Courant Number mean:" in line:
+                found = re.search(r"\bmax:\s*([0-9.eE+-]+)", line)
+                if found:
+                    co = float(found.group(1))
+                    return co if math.isfinite(co) and co>=0 else None
+    return None
+
+
+def first_meshco_gate(base, work):
+    """Reject first-window grid-motion discontinuity against native 91543."""
+    phys = START+DT
+    ref = first_native_meshco(
+        base/"three-day-proven/long-job-91543/fluid.log", phys)
+    candidate = first_native_meshco(work/"fluid.log", phys)
+    ratio = (candidate/ref if ref is not None and ref>0
+             and candidate is not None else None)
+    return {
+        "physical_time_s":phys,
+        "continuous_first_meshCo":ref,
+        "candidate_first_meshCo":candidate,
+        "relative_ratio":ratio,
+        "tenfold_native_startup_meshco_gate":
+            ratio is not None and 0<=ratio<=10,
+        "note":"First provisional meshCo, same physical instant; not later settled iteration"
+    }
+
+
 def load_core(path):
     spec = importlib.util.spec_from_file_location("incremental_restart_private_core", path)
     if spec is None or spec.loader is None:
@@ -270,6 +313,7 @@ def trial(base, work, corefile):
             work/"runs/hpcc-implicit-002/solid"/WATCH)
     except Exception as ex:
         watch_error = repr(ex)
+    meshco = first_meshco_gate(base, work)
     quality = native.get("quality", {}) if native else {}
     correct = bool(
         failure is None and watch_error is None and native is not None
@@ -279,7 +323,8 @@ def trial(base, work, corefile):
         and native.get("native_terminal_mesh",{}).get("status") == "PASS"
         and quality.get("max_mesh_Co", math.inf) <= .5
         and quality.get("max_fluid_Co", math.inf) <= .5
-        and all(row["Fx_rel_error"] <= .01 for row in accepted))
+        and all(row["Fx_rel_error"] <= .01 for row in accepted)
+        and meshco["tenfold_native_startup_meshco_gate"])
     report = {
         "status": "INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS" if correct
                   else "INCREMENTAL_DISPLACEMENT_TWO_WINDOW_FAIL",
@@ -287,6 +332,7 @@ def trial(base, work, corefile):
         "source_checkpoint_unchanged":True,"long_91543_untouched":True,
         "actual_native_result":native,"accepted_vs_continuous":accepted,
         "native_failure":failure,"watch_error":watch_error,
+        "first_native_meshco_comparison":meshco,
         "NEVER_AUTO_START_MULTIDAY":True,
     }
     if work.is_dir():
@@ -360,6 +406,18 @@ def self_test():
         assert all(x["Fx_rel_error"]<1e-12 for x in compare_accepted(a,b))
         b.write_text(b.read_text().replace("0.018 0","0.072 0"))
         assert compare_accepted(a,b)[0]["Fx_rel_error"]>=2.99
+    with tempfile.TemporaryDirectory() as temp:
+        root=Path(temp)
+        ref=root/"ref-fluid.log"
+        cand=root/"cand-fluid.log"
+        ref.write_text("Time = 0.032625\n"
+                       "Mesh Courant Number mean: 1e-8 max: 1.81e-5\n")
+        cand.write_text("Time = 0.032625\n"
+                        "Mesh Courant Number mean: 1e-5 max: 0.129329\n")
+        assert first_native_meshco(ref,.032625)==1.81e-5
+        assert first_native_meshco(cand,.032625)==.129329
+        assert first_native_meshco(cand,.03275) is None
+        assert first_native_meshco(cand,.032625)/first_native_meshco(ref,.032625)>7000
     print("INCREMENTAL_DISPLACEMENT_RESTART_OFFLINE_SELFTEST_PASS")
 
 
