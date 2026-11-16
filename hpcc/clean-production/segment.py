@@ -196,18 +196,14 @@ def stage_inputs(base,stage,previous_job,work,max_windows,chain_root=None):
     dst.parent.mkdir()
     # Keep only the latest distributed checkpoint, with original case static
     # fields; do not accumulate older history across multi-day stages.
-    latest_names={f"processor{i}":saved[i][1].name for i in range(8)}
+    # IMPORTANT: retain source time history rather than dropping all but
+    # the most recent MPI time directory. Although historic time folders
+    # alone do not prove restoration of mesh oldPoints / moving fluxes,
+    # deleting them was an avoidable loss of restart evidence.
+    # All copied files remain private to the isolated new work folder.
     def ignore(parent,names):
         p=Path(parent)
-        skip=[]
-        if p.name in latest_names and p.parent.name=="fluid":
-            for name in names:
-                try: float(name)
-                except ValueError:continue
-                if name!=latest_names[p.name]:skip.append(name)
-        if p.name in ("fluid","solid"):
-            skip +=[x for x in names if x=="precice-profiling"]
-        return skip
+        return [x for x in names if x=="precice-profiling"] if p.name in ("fluid","solid") else []
     shutil.copytree(source,dst,ignore=ignore,symlinks=False)
     for child in dst.rglob("precice-*"):
         if child.is_file() and child.suffix in (".log",".json",".csv"):
@@ -312,7 +308,7 @@ def accepted_iterations(path,n):
         allrows.append(row)
     return allrows
 
-def quality_from_log(log,end,first_attempt_time):
+def quality_from_log(log,end,first_attempt_time,allow_transient=False):
     """Keep frozen fluid Co and mesh quality gates. Explicitly report the
     first-window meshCo restart transient instead of silently discarding it.
 
@@ -353,6 +349,12 @@ def quality_from_log(log,end,first_attempt_time):
             mesh_events.append((tm,value))
     if not mesh_events:raise RuntimeError("No mesh Courant histories")
     high=[(time,value) for time,value in mesh_events if value>.5]
+    # A restarted coupled session must not silently pass a large transient.
+    # Historic continuous stage-0 evidence may explicitly opt in, but a
+    # NEW cross-Slurm job is strict unless independent numerical validation
+    # proves any relaxation safe.
+    if high and not allow_transient:
+        raise RuntimeError(f"UNQUALIFIED_CROSS_JOB_MESH_COURANT_SPIKE peak={max(v for _,v in high)}")
     first=[v for time,v in mesh_events
            if time is not None and abs(time-first_attempt_time)<1e-9]
     following=[v for time,v in mesh_events
@@ -461,7 +463,8 @@ def run(base,stage,previous_job,work,max_windows,timeout,chain_root=None):
         t,saved=latest_time(fluid)
         if abs(t-meta["final_time_s"])>1e-9:
             raise RuntimeError("Fluid latest time not equal accepted preCICE time")
-        quality=quality_from_log(work/"fluid.log",t,meta["parent_time_s"]+DT)
+        quality=quality_from_log(work/"fluid.log",t,meta["parent_time_s"]+DT,
+                                 allow_transient=(stage==0))
         if not (solid/"seagrass.rout").is_file() or not (solid/"kinematic_state.bin").is_file():
             raise RuntimeError("New structural continuation checkpoints missing")
         if (sha(solid/"seagrass.rout")==meta["solid_input_rin_sha256"] or
@@ -552,7 +555,13 @@ def self_test():
           "Courant Number mean: 0.01 max: 0.42\n"
           "Mesh Courant Number mean: 0.001 max: 0.24\n"
           +guard(end_t))
-        good=quality_from_log(log,end_t,start_t)
+        try:
+            quality_from_log(log,end_t,start_t)
+        except RuntimeError as e:
+            assert "UNQUALIFIED_CROSS_JOB_MESH_COURANT_SPIKE" in str(e)
+        else:
+            raise AssertionError("Cross-job mesh Co excursion incorrectly approved")
+        good=quality_from_log(log,end_t,start_t,allow_transient=True)
         assert good["first_window_restart_transient_exception"]
         assert good["later_window_meshCo_max"]==.24
         log.write_text(log.read_text()+f"Time = {end_t:.9f}\n"
