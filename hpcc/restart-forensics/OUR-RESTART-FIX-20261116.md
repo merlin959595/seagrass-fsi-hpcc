@@ -418,6 +418,44 @@ nodal index/point equality.
 
 No new FSI/Slurm jobs; source 91006 and live 91543 untouched.
 
+## 2026-11-16: Native structural restart log ordering now observed
+
+The user pasted 91878 real `solid.log`, with these exact
+messages/line numbers:
+- L42 `SEAGRASS_REFERENCE_MESH_RESTORED mesh=Solid-Mesh count=7305 dimensions=3 max_registration_shift=0.0057796529218752512`.
+  The custom structural reference mesh restoration DID run, shifting
+  registered coordinates by up to ~5.780 mm. This **reduces**
+  the plausibility of simply equating the actual structure
+  `Solid-Mesh` registration with the unmodified stock CCX
+  `co + vold` registration; the earlier hypothetical mismatch is
+  not established.
+- L51–53: preCICE provided `Solid-Mesh` partition prepared/sent.
+- L56: preCICE `initialize` logs first time-window.
+- L57 `Initializing coupling data` in standard CCX adapter
+  `Precice_Setup()` follows `precicec_initialize()` and
+  **precedes `Precice_ReadCouplingData()`**; the phrase at L57 does
+  not itself prove what initial values were written.
+- L59 `SEAGRASS_PERSISTENT_STATE_RESTORED nodes=51855 mt=4 time=0.032500000000000001`.
+  Persistent-state restoration is **logged after preCICE initialize**.
+  Whether this changes pre-initialize geometry, nodal displacement,
+  velocities, acceleration or an auxiliary variable is unknown until
+  native custom source call order is inspected. This timing is a
+  stronger discriminating clue than static mesh geometry alone.
+- L3258 original CalculiX restart says `restart file seagrass.rin`.
+- At that time, long uninterrupted `91543` was still RUNNING at
+  14:43:06 elapsed.
+
+The native custom `referenceRestart.c` exists on HPC under
+`$HOME/hpcc-fsi/seagrass-implicit-20261111/scripts/native/`; its L25
+reads `SG_REFERENCE_MODE` and `SG_REFERENCE_DIR`.
+The custom persistent state restore source/executable is only on HPC,
+and this GitHub branch has **no uploaded source file for either**
+(verified via repository tree). Do not infer exact effect or
+silently change third-party adapter/solver code. Request read-only
+`sed` of custom `referenceRestart.c`, exact `solid.log` L30–85,
+and `grep` of `SEAGRASS_PERSISTENT_STATE_RESTORED` in local custom
+sources. Then decide whether startup order is causal.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
