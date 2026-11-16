@@ -382,6 +382,55 @@ def quality_from_log(log,end,first_attempt_time,allow_transient=False):
     }
     return quality
 
+def first_computed_fluid_force(log):
+    """Read first physical force sample, not the preCICE initialized exchange."""
+    text=log.read_text(errors="replace")
+    m=re.search(
+        r"forces bladeForces write:.*?\bTotal\s*:\s*"
+        r"\(([-+\d.eE]+)\s+([-+\d.eE]+)\s+([-+\d.eE]+)\)",
+        text,re.S)
+    if not m:raise RuntimeError("Cross-job force gate: no bladeForces first computed sample")
+    force=tuple(float(v) for v in m.groups())
+    if not all(math.isfinite(v) for v in force):
+        raise RuntimeError("Cross-job force gate: nonfinite computed force")
+    return force
+
+def previous_last_accepted_force(source):
+    path=source/"solid/precice-Solid-watchintegral-Interface-Integral.log"
+    if not path.is_file():
+        raise RuntimeError("Cross-job force gate: missing prior accepted force watch")
+    result=None
+    for line in path.read_text(errors="replace").splitlines():
+        cols=line.split()
+        if len(cols)<2:continue
+        try:
+            time=float(cols[0]);fx=float(cols[1])
+        except ValueError:continue
+        if math.isfinite(time) and math.isfinite(fx):
+            result=(time,fx)
+    if result is None:
+        raise RuntimeError("Cross-job force gate: no prior accepted watch force")
+    return result
+
+def validate_cross_job_force(source,log,max_relative_error=.20):
+    """A solver exit 0 is not a scientific restart PASS; reject initial huge loads.
+
+    The provisional first computed force is kept even if IQN later converges.
+    This flags the known 91767 failure: 11.515N vs the 0.0176638N source.
+    """
+    last_time,baseline=previous_last_accepted_force(source)
+    if abs(baseline)<1e-12:
+        raise RuntimeError("Cross-job force gate: reference force is near zero; use absolute tolerance evidence")
+    first=first_computed_fluid_force(log)
+    rel=abs(first[0]-baseline)/abs(baseline)
+    if not math.isfinite(rel) or rel>max_relative_error:
+        raise RuntimeError(
+            f"UNPHYSICAL_CROSS_JOB_FIRST_FORCE_JUMP source_Fx={baseline:.12g} "
+            f"first_Fx={first[0]:.12g} relative_error={rel:.9g} "
+            f"threshold={max_relative_error} prior_relative_t={last_time:.9g}")
+    return {"prior_Fx_N":baseline,"first_computed_Fx_N":first[0],
+            "relative_error":rel,"threshold":max_relative_error}
+
 def check_mesh(fluid,work):
     command=["mpirun","--oversubscribe","-np","8","--bind-to","none",
              "checkMesh","-case",str(fluid),"-parallel",
@@ -465,6 +514,8 @@ def run(base,stage,previous_job,work,max_windows,timeout,chain_root=None):
             raise RuntimeError("Fluid latest time not equal accepted preCICE time")
         quality=quality_from_log(work/"fluid.log",t,meta["parent_time_s"]+DT,
                                  allow_transient=(stage==0))
+        force_continuity=(validate_cross_job_force(Path(meta["parent_run"]),
+                           work/"fluid.log") if stage>=1 else None)
         if not (solid/"seagrass.rout").is_file() or not (solid/"kinematic_state.bin").is_file():
             raise RuntimeError("New structural continuation checkpoints missing")
         if (sha(solid/"seagrass.rout")==meta["solid_input_rin_sha256"] or
@@ -485,6 +536,7 @@ def run(base,stage,previous_job,work,max_windows,timeout,chain_root=None):
            "max_coupling_iterations_per_window":max(r[2] for r in iters),
            "participant_exit_codes":exits,
            "quality":quality,"native_terminal_mesh":check,
+           "cross_job_initial_force_continuity":force_continuity,
            "wall_s":wall,"s_per_window":wall/meta["accepted_windows"],
            "solid_rout_sha256":sha(solid/"seagrass.rout"),
            "solid_kinematic_sha256":sha(solid/"kinematic_state.bin"),
@@ -569,6 +621,25 @@ def self_test():
         try:quality_from_log(log,end_t,start_t)
         except RuntimeError:pass
         else:raise AssertionError("Later Courant excursion was accepted")
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d)
+        (root/"solid").mkdir()
+        (root/"solid/precice-Solid-watchintegral-Interface-Integral.log").write_text(
+            "Time Fx Fy Fz\n0.030 0.0176638208 0 0\n")
+        force_log=root/"fluid.log"
+        force_log.write_text(
+            "Time = 0.032625\nforces bladeForces write:\n"
+            "Total : (11.515278323918 0 0)\n")
+        try:
+            validate_cross_job_force(root,force_log)
+        except RuntimeError as e:
+            assert "UNPHYSICAL_CROSS_JOB_FIRST_FORCE_JUMP" in str(e)
+        else:
+            raise AssertionError("91767 unphysical load was accepted")
+        force_log.write_text(
+            "Time = 0.032625\nforces bladeForces write:\n"
+            "Total : (0.018 0 0)\n")
+        assert validate_cross_job_force(root,force_log)["relative_error"]<.20
     print("FSI_CLEAN_PRODUCTION_SELF_TEST_PASS")
 
 def main():
