@@ -145,6 +145,41 @@ No new Slurm job is justified until the corrected force trace is examined.
 Never patch third-party solver or adapter sources merely because a
 continuous and a cross-process run diverge.
 
+## 2026-11-16 corrected pressure-force trace and next discriminating audit
+
+The user re-ran the corrected parser at revision `85cc0acc48cc5485824caa12d2f06ffac67c0fe8`.
+
+At physical 0.032625s:
+- 91543 (continuous): 22 force evaluations, initial provisional Fx=11.154076549809 N; **last force** Fx=0.017880777427529 N; MeshCo first=1.8095493183964e-05, last=0.21297449162722.
+- 91819 (restart): 31 force evaluations, initial provisional Fx=11.515278323918 N; **last force** Fx=0.072196787889366 N; MeshCo first=0.12932920678317, last=0.22329140557326.
+At physical 0.032750s:
+- 91543 final Fx=0.018101019757539 N, MeshCo first=1.7838449632574e-05, last=0.21169309361469.
+- 91819 final Fx=-0.12074341853531 N, MeshCo first=2.6133204105943e-05, last=0.2086749039947.
+
+The corrected last *fluid force* now agrees with the accepted Solid watch force
+rather than accidentally reading the `Sum of moments` block.
+The **first-record** large MeshCo discrepancy is concentrated in the
+first window after the new preCICE session starts; it does not
+imply meshCo is unbounded later in that window.
+
+The intervention 91767/91819 changed BOTH the reference option
+`restartFromDeformed true -> false` AND `initialize=yes` for both exchanges.
+Thus the difference versus uninterrupted 91543 remains **confounded**.
+
+**Do not infer causality just from the difference in first MeshCo.**
+Before another Slurm run, the new read-only
+`audit-historical-initialization-controls-readonly.py` compares already
+executed experiments:
+- 91504: `false` reference without initialized exchanges
+- 91538: `true` reference with initialized Displacement
+- 91542: `true` reference with initialized Force and Displacement
+- 91767/91819: `false` reference with both initialized exchanges
+
+Each is checked against the same-physical-time 91543 accepted Force0,
+first MeshCo, configuration flag, and available accepted-window data.
+A missing old trial or missing accepted data is not counted as a numerical
+pass/fail. This is evidence gathering, not a new calculation.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
