@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Compare the same physical-time pressure/flow solver trace for 91006,
-91543 (continuous) and 91767/91819 (cross-job restarts).
+"""Compare same physical-time pressure/flow traces for 91006,
+91543 (continuous) and 91767/91819/91878 (cross-job restarts).
+Include the actual 91878 Displacement-only initialization A/B job.
 
 Read-only; no Slurm, solver, adapter, case writes, or changes to 91543.
 Search streams only through the first 0.033s of case time, bounded memory.
@@ -17,6 +18,7 @@ REL = {
   "continuous91543": "three-day-proven/long-job-91543",
   "restart91767": "crossjob-fix-20261116/trials/trial-91767",
   "restart91819": "crossjob-fix-20261116/trials/trial-91819",
+  "restart91878": "crossjob-fix-20261116/force-ab-tests/trial-91878",
 }
 TGT=(.0325,.032625,.03275)
 TIMERE=re.compile(r"^\s*Time\s*=\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$")
@@ -146,6 +148,7 @@ def motion_slope(result):
     source=result["source91006"]["watch"]
     live=result["continuous91543"]["watch"]
     restarted=result["restart91819"]["watch"]
+    restarted_alt=result["restart91878"]["watch"]
     t_before=round(.03-.000125,9)
     t0=.03
     dt=.000125
@@ -162,6 +165,8 @@ def motion_slope(result):
       "91819_first_new_window":slope(restarted,0,dt),
       "91543_second_window":slope(live,t0+dt,t0+2*dt),
       "91819_second_new_window":slope(restarted,dt,2*dt),
+      "91878_first_new_window":slope(restarted_alt,0,dt),
+      "91878_second_new_window":slope(restarted_alt,dt,2*dt),
       "caution":"Watchintegral displacement slope is integrated interface quantity, not local node velocity."
     }
 
@@ -253,6 +258,8 @@ def self_test():
         assert a["last_forces"][-3:]==[["Total",0.018],
                                        ["Pressure",0.017],["Viscous",0.001]]
         assert "Solving for p" in str(a["samples"])
+    assert REL["restart91878"].endswith("/force-ab-tests/trial-91878")
+    assert .0325 + .000125 == .032625
     print("READ_ONLY_PRESSURE_SOLVER_TRACE_SELFTEST_PASS")
 
 def main():
