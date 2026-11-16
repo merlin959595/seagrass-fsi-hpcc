@@ -30,7 +30,8 @@ jobs:
         run: |
           python3 -m py_compile hpcc/restart-forensics/delta-continuation.py
           python3 hpcc/restart-forensics/delta-continuation.py --self-test
-          bash -n hpcc/restart-forensics/submit-delta-continuation-short.sh hpcc/restart-forensics/run-delta-continuation-container.sh
+          bash -n hpcc/restart-forensics/submit-delta-continuation-short.sh hpcc/restart-forensics/run-delta-continuation-container.sh hpcc/restart-forensics/prepare-g1-after-92264-readonly.sh
+          test -z "$(grep -E '^[[:space:]]*sbatch([[:space:]]|$)' hpcc/restart-forensics/prepare-g1-after-92264-readonly.sh)"
           python3 - <<'PY_PIN'
           from pathlib import Path
           p=Path("hpcc/restart-forensics/submit-delta-continuation-short.sh").read_text()
