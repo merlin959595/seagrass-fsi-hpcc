@@ -96,10 +96,10 @@ def real_fluid_fpe(log_text):
     it checked unrelated substrings ('Floating point exception' + 'Signal').
     """
     signatures=(
-        r"(?im)^\\s*(?:\\[\\d+\\]\\s*)?Signal:\\s*Floating point exception\\b",
-        r"(?im)^\\s*.*exited on signal 8\\s*\\(Floating point exception\\)",
-        r"(?im)^\\s*Command exited with non-zero status 136\\s*$",
-        r"(?im)^\\s*Floating point exception(?:\\s*\\(core dumped\\))?\\s*$",
+        r"(?im)^\s*(?:\[\d+\]\s*)?Signal:\s*Floating point exception\b",
+        r"(?im)^\s*.*exited on signal 8\s*\(Floating point exception\)",
+        r"(?im)^\s*Command exited with non-zero status 136\s*$",
+        r"(?im)^\s*Floating point exception(?:\s*\(core dumped\))?\s*$",
     )
     return any(re.search(pattern,log_text) is not None for pattern in signatures)
 
