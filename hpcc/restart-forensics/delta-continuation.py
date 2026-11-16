@@ -40,7 +40,7 @@ def read_json(path):
     return json.loads(path.read_text())
 
 
-def verified_source(source_work, core):
+def verified_source(source_work, core, base):
     """Only completed, accepted cases with the same verified delta protocol."""
     source_work=source_work.resolve(strict=True)
     if source_work.name.startswith("trial-") and source_work.name=="trial-92264":
@@ -102,11 +102,24 @@ def verified_source(source_work, core):
         p=source/f"fluid/processor{rank}"
         if len(core.numeric_time_names(p))<2:
             raise RuntimeError(f"Insufficient source time history processor{rank}")
+    # IMPORTANT: job 92264 was launched with an earlier pinned driver whose
+    # PASS report checked Fx and MeshCo, but NOT Delta0/Delta2 integrals.
+    # Recompute the scientific gate from immutable accepted logs BEFORE a
+    # subsequent Slurm job can be submitted, regardless of parent report.
+    count=int(outcome["accepted_windows"])
+    physical_start=declared-count*DT
+    evidence=scientific_gate(base,source_work,source_work,physical_start,count)
+    if evidence["status"]!="PASS":
+        raise RuntimeError(
+            "PARENT_SCIENTIFIC_DELTA_CONTINUITY_FAILED "
+            f"Fx={evidence['max_Fx_relative_error']:.8g} "
+            f"Delta0={evidence['max_delta0_relative_error']:.8g} "
+            f"Delta2={evidence['max_delta2_relative_error']:.8g}")
     return source,declared,current_step+1,outcome
 
 
 def build_private_stage(core,base,source_work,destination,windows,source_job):
-    source,t0,step,parent=verified_source(source_work,core)
+    source,t0,step,parent=verified_source(source_work,core,base)
     if windows not in (2,20):
         raise RuntimeError("Only 2 or 20 windows allowed until separate long-job qualification")
     t1=t0+windows*DT
@@ -256,7 +269,7 @@ def run_trial(base,source_work,work,windows,core_path,source_job):
         raise RuntimeError("Compute node Slurm allocation required")
     core=load_core(core_path)
     # Fail-closed source before any files created.
-    source,start,step,parent=verified_source(source_work,core)
+    source,start,step,parent=verified_source(source_work,core,base)
     if work.exists():
         raise RuntimeError("Work already exists")
     def staged(_base,_stage,_job,_dest,_n,_chain_root=None):
@@ -359,7 +372,7 @@ def main():
     base=args.base.expanduser().resolve(strict=True)
     core=load_core(args.core.expanduser().resolve(strict=True))
     source_work=args.source_work.expanduser().resolve(strict=True)
-    source,start,step,outcome=verified_source(source_work,core)
+    source,start,step,outcome=verified_source(source_work,core,base)
     if args.preflight:
         print("DELTA_CONTINUATION_PREFLIGHT_PASS",
               "source",source_work,"from",start,
