@@ -33,6 +33,7 @@ on:
       - 'hpcc/submit-fsi-recover91410.sh'
       - 'hpcc/clean-production/**'
       - 'hpcc/three-day-proven/**'
+      - 'hpcc/restart-forensics/**'
       - 'hpcc/submit-fsi-long-chain.sh'
       - 'hpcc/g2-structural-solver-backend-audit.sh'
       - 'hpcc/g2-affinity-20-candidate.py'
@@ -70,6 +71,8 @@ jobs:
           python3 hpcc/clean-production/restart-initial-data-candidate.py --self-test
           python3 hpcc/clean-production/restart-both-initial-fields-candidate.py --self-test
           python3 hpcc/three-day-proven/run-three-day.py --self-test
+          python3 hpcc/restart-forensics/audit-cross-job-fields-and-frames.py --self-test
+          python3 hpcc/restart-forensics/try-aligned-reference-and-both-initial.py --self-test
           python3 hpcc/clean-production/test-submit-mock.py
           python3 hpcc/g2-profile-evidence.py --self-test
           python3 hpcc/g3-offline-quality-monitor.py --self-test
