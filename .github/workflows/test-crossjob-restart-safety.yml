@@ -18,6 +18,10 @@ jobs:
         run: python3 hpcc/clean-production/segment.py --self-test
       - name: Two-window candidate inputs self-test
         run: python3 hpcc/restart-forensics/try-aligned-reference-and-both-initial.py --self-test
+      - name: Historical initialization control (no new FSI run)
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/audit-historical-initialization-controls-readonly.py
+          python3 hpcc/restart-forensics/audit-historical-initialization-controls-readonly.py --self-test
       - name: Differential pressure-solver trace audit
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91819-continuous-vs-restart-first-pressure-readonly.py
