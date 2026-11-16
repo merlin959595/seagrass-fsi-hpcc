@@ -91,6 +91,19 @@ def field_check(source,trial):
                     "byte_identical_ranks":equal}
     return rows
 
+def bounded_early_log(path, stop_time=.033, max_lines=180000):
+    """Read only beginning of long-run log through the comparison time."""
+    if not path.is_file():return ""
+    time_rx=re.compile(r"^\s*Time\s*=\s*([+\-\d.eE]+)\s*$")
+    lines=[]
+    with path.open(errors="replace") as f:
+        for n,line in enumerate(f):
+            if n>=max_lines:break
+            m=time_rx.match(line)
+            if m and float(m.group(1))>stop_time:break
+            lines.append(line)
+    return "".join(lines)
+
 def status_report(base):
     source=base/"fsi-long-stage0-job91006/runs/hpcc-implicit-002"
     trial=base/"crossjob-fix-20261116/trials/trial-91767/runs/hpcc-implicit-002"
@@ -103,6 +116,15 @@ def status_report(base):
     livew=watch(live/"solid/precice-Solid-watchintegral-Interface-Integral.log")
     fl=(root/"fluid.log").read_text(errors="replace") if (root/"fluid.log").is_file() else ""
     force=forces(fl)
+    live_fluid=bounded_early_log(live.parents[1]/"fluid.log")
+    control_fluid_forces=forces(live_fluid)
+    t_abs=.032625
+    control_raw=[x["Fx_N"] for x in control_fluid_forces
+                 if x["physical_time_s"] is not None and
+                    abs(x["physical_time_s"]-t_abs)<1e-8]
+    trial_raw=[x["Fx_N"] for x in force
+               if x["physical_time_s"] is not None and
+                  abs(x["physical_time_s"]-t_abs)<1e-8]
     reference=matching(original,.03)
     init=matching(trialw,0.)
     first_accepted=matching(trialw,.000125)
@@ -129,6 +151,16 @@ def status_report(base):
           rel(first_accepted[-1],control_first[-1]) if first_accepted and control_first else None,
       "second_accepted_rel_error_to_control":
           rel(second_accepted[-1],control_second[-1]) if second_accepted and control_second else None,
+      "continuous_91543_raw_Fx_at_0032625_first_N":
+          control_raw[0] if control_raw else None,
+      "continuous_91543_raw_Fx_at_0032625_last_N":
+          control_raw[-1] if control_raw else None,
+      "trial_91767_raw_Fx_at_0032625_first_N":
+          trial_raw[0] if trial_raw else None,
+      "trial_first_raw_vs_continuous_first_relative_error":
+          rel(trial_raw[0],control_raw[0]) if trial_raw and control_raw else None,
+      "trial_first_raw_vs_continuous_last_relative_error":
+          rel(trial_raw[0],control_raw[-1]) if trial_raw and control_raw else None,
       "forces_first_6":force[:6],
       "forces_last_6":force[-6:],
       "forces_record_count":len(force),
