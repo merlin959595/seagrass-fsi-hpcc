@@ -82,8 +82,21 @@ python3 "$1" --base "$HOME/hpcc-fsi" --work "$2" --run
 echo "FSI_REFERENCE_ALIGNMENT_TEST_EXECUTION_COMPLETE"
 SBATCH
 bash -n "$BATCH"
+# Allocate away from the active 72-hour job's node, when Slurm reports it.
+# This prevents extra solver CPU/memory pressure on job 91543.
+AVOID=()
+LIVE="$(squeue -h -j 91543 -o '%T %N')" || { echo "Cannot verify 91543 allocation" >&2;exit 49; }
+if [[ "$LIVE" == RUNNING\ * ]];then
+  NODE="${LIVE#RUNNING }"
+  if [[ -n "$NODE" && "$NODE" != "(null)" && "$NODE" != "None" ]];then
+    AVOID=(--exclude="$NODE")
+  else
+    echo "Cannot determine node of running 91543; no trial submitted" >&2
+    exit 50
+  fi
+fi
 job="$(sbatch --parsable --partition=cpu --nodes=1 --ntasks=1 \
-  --cpus-per-task=12 --mem=24G --time=01:00:00 \
+  "${AVOID[@]}" --cpus-per-task=12 --mem=24G --time=01:00:00 \
   --job-name=fsi-ownfix2 \
   --export="ALL,BASH_ENV=,ENV=,FSI_INITIAL_SOURCE=$PIN,FSI_INITIAL_HASH=$HASH,FSI_INITIAL_CORE=$COREPIN,FSI_INITIAL_CORE_HASH=$COREHASH" \
   --output="$ROOT/test-%j.out" \
