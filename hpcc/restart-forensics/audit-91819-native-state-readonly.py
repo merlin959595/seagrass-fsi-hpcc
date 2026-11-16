@@ -180,6 +180,34 @@ def audit(base):
       },
       "NO_WRITES_NO_SLURM_NO_SOLVER":True}
 
+def summarize(packet):
+    cases=packet["cases"]
+    out=["READ_ONLY_91819_RESTART_STATE_SUMMARY"]
+    for name in ("source91006","trial91767","trial91819"):
+        part=cases[name]
+        history=part["history"]
+        rank0=history["0"]
+        counts={len(data["times"]) for data in history.values()}
+        gaps={data["previous_snapshot_steps_at_dt000125"] for data in history.values()}
+        out.append(f"CASE={name} times_per_rank={sorted(counts)} "
+                   f"previous_written_snapshot_gap_steps={sorted(gaps)}")
+        out.append(f"  source_times_rank0={rank0['times']}")
+        out.append(f"  serialized_auxiliary_fields_rank0="
+                   f"{rank0['history_candidate_files_present']}")
+        for key in ("fvSchemes","controlDict","fvSolution",
+                    "dynamicMeshDict","preciceDict","preciceXML","solidInp"):
+            item=part["config"][key]
+            if item.get("exists"):
+                out.append(f"  {key}="+repr(item["relevant_lines"][:10]))
+        if name!="source91006":
+            out.append(f"  solid_restart_copy_matches="
+                       f"{ {key:v['same_sha256'] for key,v in part['solid_source_copy'].items()} }")
+            out.append(f"  force_log_first_block="+repr(
+                part["first_force_block"]["first_force_log_lines"][:17]))
+            out.append(f"  accepted_watch_first_three={part['first_accepted_watch']}")
+    out.append("NO_SOLVER_NO_SBATCH_NO_LIVE_JOB_FILES_MODIFIED")
+    return "\n".join(out)
+
 def self_test():
     with tempfile.TemporaryDirectory() as tmp:
         p=Path(tmp)/"fluid/processor0"
@@ -197,9 +225,12 @@ def main():
     a=argparse.ArgumentParser()
     a.add_argument("--base",type=Path,default=Path.home()/"hpcc-fsi")
     a.add_argument("--self-test",action="store_true")
+    a.add_argument("--summary",action="store_true",help="Compact native state comparison")
     opt=a.parse_args()
     if opt.self_test:return self_test()
-    print(json.dumps(audit(opt.base.expanduser().resolve(strict=True)),indent=2,ensure_ascii=False))
+    packet=audit(opt.base.expanduser().resolve(strict=True))
+    if opt.summary: print(summarize(packet))
+    else: print(json.dumps(packet,indent=2,ensure_ascii=False))
     print("NO_SOURCE_NO_LIVE_JOB_NO_THIRD_PARTY_SOLVER_MODIFICATIONS")
 
 if __name__=="__main__":main()
