@@ -103,6 +103,48 @@ modify 91543, 91767, the 91006 checkpoint, solver sources, or scheduler.
 - **New evidence-first step:** compare first pressure solver traces and source/reference interface-integral derivatives at identical physical time, using `audit-91819-continuous-vs-restart-first-pressure-readonly.py`. Interpret derivatives of watchintegral as integrated quantities only.
 - No further Slurm candidate before the above read-only evidence is reviewed. The working three-day job 91543 remains untouched.
 
+## Correction after pressure-trace evidence (2026-11-16, required reading)
+
+**Our previous verdict used an invalid comparison.** Comparing the first,
+unaccepted OpenFOAM/PIMPLE blade force from the restarted session
+(11.5152783 N) to the previous *accepted preCICE coupling window* force
+(0.0176638208 N) produced an asserted 650.9-fold error. This compares
+different iteration states. The uninterrupted continuous 91543 case also
+has a provisional first force of **11.15407655 N** at the same 0.032625s
+time; 91006 has 11.15324928 N at 0.0325s. The directly comparable
+provisional force difference between restarted and uninterrupted cases
+at 0.032625s is only **3.2383%**. A high early PIMPLE pressure force
+alone is not evidence of a broken solver or an invalid restart.
+
+**A second error was our own parser:** the old
+`audit-91819-continuous-vs-restart-first-pressure-readonly.py` counted
+`Sum of moments` Total/Pressure/Viscous as forces, yielding spurious
+`FINAL_FORCE_COMPONENTS` around 1e-10 N. The parser is now restricted
+to the section between `Sum of forces` and `Sum of moments`, with
+regression tests for both sections. Counts of `Time =` blocks are called
+fluid time records, NOT accepted preCICE iterations.
+
+**The restart is STILL scientifically invalid:** actual accepted watch
+Force0 is 0.0721967879 N and -0.120743419 N for 91819 versus
+0.0178807774 N and 0.0181010198 N in uninterrupted 91543.
+Core `validate_cross_job_force` now only records provisional forces
+as diagnostics without vetoing an otherwise valid implicit iteration.
+Acceptance is gated by `validate_accepted_force_continuity`
+and, where available, same-physical-time continuous controls.
+
+**Stronger discriminating clue:** the first recorded Mesh Courant maximum
+at physical t=0.032625 is ~0.129329 in the new session, versus
+~0.0000180955 in uninterrupted 91543, a ~7147-fold difference.
+This is a FIRST-RECORD comparison rather than the maximum over the whole
+window, and warrants checking initial ALE interface data and reference
+setup before pressure-solver changes. It does not uniquely establish the
+cause: restart 91819 simultaneously changes preCICE initial data and
+`restartFromDeformed` compared with 91543.
+
+No new Slurm job is justified until the corrected force trace is examined.
+Never patch third-party solver or adapter sources merely because a
+continuous and a cross-process run diverge.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
