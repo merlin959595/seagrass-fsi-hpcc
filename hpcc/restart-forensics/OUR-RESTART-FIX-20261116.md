@@ -93,6 +93,16 @@ modify 91543, 91767, the 91006 checkpoint, solver sources, or scheduler.
 
 **Next investigation (read-only first):** Check exactly which stored histories are one native time-step apart, OpenFOAM ddt and ALE settings, whether frame references and CCX persistent state are restored in consistent units/time, and the first flow-step force decomposition. Inspect the 91543 continuous reference without altering its files. Do not alter OpenFOAM/preCICE/CalculiX/adapters or restart a 72-hour job.
 
+## 2026-11-16 accepted displacement/pressure audit and confounding controls
+
+- At physical t=0.032625 and t=0.032750, 91819 watch Force0 is 0.0721967879 N and -0.120743419 N versus continuous 91543 0.0178807774 N and 0.0181010198 N. The force path is genuinely wrong even after accepted preCICE iterations.
+- The relative Displacement0 watch **integrals** differ from 91543 only 0.00928% and 0.01254%. This does **not** establish equal nodal displacement, local velocity, acceleration, or equivalent fluid volume swept.
+- The source 91006 and both restarts have SHA-256 identical p, phi, Uf, meshPhi and V0 at 0.0325 across 8 ranks. The initial force 11.515278323918 N comprises 11.514455344525 N pressure and 0.00082297939296837 N viscous.
+- The old-point files are not present as distinct files, which is not proof of a defective solver; meshPhi and V0 **are** present and identical.
+- **Important experimental confound:** continuous 91543 starts from 90873 at 0.0025s with `restartFromDeformed true` and no initialized preCICE exchanges. Both 91767 and 91819 restart a new preCICE session at 0.0325s while using `restartFromDeformed false` AND `initialize=yes` for Force and Displacement. Those two changes were deliberately made in OUR case input, not in the third-party solver. Thus the results cannot uniquely identify a missing native ALE history; they may reflect fluid motion initialization or frame/initial-data mismatch.
+- **New evidence-first step:** compare first pressure solver traces and source/reference interface-integral derivatives at identical physical time, using `audit-91819-continuous-vs-restart-first-pressure-readonly.py`. Interpret derivatives of watchintegral as integrated quantities only.
+- No further Slurm candidate before the above read-only evidence is reviewed. The working three-day job 91543 remains untouched.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
