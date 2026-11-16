@@ -85,8 +85,10 @@ def provenance(base):
         raise RuntimeError("Missing frozen CCX original mesh coordinate reference")
     for rank in range(8):
         d=root/f"fluid/processor{rank}/0.0325"
-        if not (d/"pointDisplacement").is_file() or not (d/"polyMesh/points").is_file():
-            raise RuntimeError(f"Rank {rank} lacks certified ALE restart fields")
+        for required in ("U","p","phi","cellDisplacement","pointDisplacement",
+                         "polyMesh/points","uniform/time"):
+            if not (d/required).is_file():
+                raise RuntimeError(f"Rank {rank} lacks certified ALE/CFD restart field {required}")
     return root
 
 def choose(stage,maxwin,prior_t):
@@ -368,8 +370,18 @@ def main():
     b=a.base.expanduser().resolve(strict=True)
     provenance(b)
     core=imported(CORE,"isolated_own_restart_driver")
-    core.source_for(b,1,91006,b/"seagrass-fsi-mainline")
+    source_for_result=core.source_for(b,1,91006,b/"seagrass-fsi-mainline")
+    source_fluid=source_for_result[1]/"fluid"
+    counts={}
+    for rank in range(8):
+        names=core.numeric_time_names(source_fluid/f"processor{rank}")
+        counts[f"processor{rank}"]=len(names)
+        if len(names)<10 or names[-1]!="0.0325":
+            raise RuntimeError(
+                f"PRECHECK_SOURCE_HISTORY_NOT_15 rank={rank} "
+                f"count={len(names)} latest={names[-1] if names else None}")
     if a.preflight:
+        print("FSI_SOURCE_HISTORY_PREFLIGHT_COUNTS",json.dumps(counts,sort_keys=True))
         print("FSI_TWO_WINDOW_REFERENCE_ALIGNED_PREFLIGHT_PASS; NO_SLURM_NO_FIELD_WRITES")
         return
     if not a.run or a.work is None:p.error("Must specify --run --work <new_directory>")
