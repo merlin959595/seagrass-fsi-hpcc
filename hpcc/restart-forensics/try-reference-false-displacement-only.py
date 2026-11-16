@@ -155,17 +155,16 @@ def validation(work,orig):
        "certified_last_force0_N":target,
        "accepted_force_two_windows":first_two,
        "first_two_match_uninterrupted_91543_within_20pct":match_control,
-       "initialized_force0_N":initial,
-       "initial_force0_relative_error":diff,
-       "initial_force0_10pct":diff is not None and diff<=.10,
+       "force_initialization_enabled":False,
+       "uninitialized_force_t0_watch_diagnostic_N":initial,
+       "initial_force0_relative_error":None,
+       "initial_force0_10pct":None,
        "first_computed_force0_N":firstforce[0] if firstforce else None,
        "provisional_vs_prior_accepted_relative_difference_DIAGNOSTIC_ONLY":first_rel,
        "first_force_is_unaccepted_provisional":True,
        "first_force_vs_accepted_reference_noncomparable":True,
        "first_provisional_force_not_used_for_approval":True,
-       "initial_force_mapping_not_skipped_zero":any(
-           'Mapping "Force" for t=0 from "Fluid-Mesh-Faces" to "Solid-Mesh"' in l
-           and 'skipped zero sample' not in l for l in fl.splitlines()),
+       "initial_force_mapping_not_skipped_zero":None,  # Not requested in this A/B arm
        "initial_displacement_mapping_not_skipped_zero":any(
            'Mapping "Displacement" for t=0 from "Solid-Mesh" to "Fluid-Mesh-Nodes"' in l
            and 'skipped zero sample' not in l for l in fl.splitlines()),
@@ -202,8 +201,8 @@ def self_test():
         "prterun noticed that process rank 6 exited on signal 8 "
         "(Floating point exception)\\n")
 
-    # Static stage preparation regression: 15 history times on all 8 ranks,
-    # output-only purgeWrite 0, original reference & both initialized data.
+    # Static stage preparation regression: 15 histories across 8 ranks,
+    # private purgeWrite 0; only Displacement is initialized.
     import tempfile
     from types import SimpleNamespace
     with tempfile.TemporaryDirectory(prefix="fsi-history-stage-test-") as temp:
