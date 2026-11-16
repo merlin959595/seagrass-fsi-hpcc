@@ -155,6 +155,29 @@ def self_test():
     except RuntimeError:pass
     else:raise AssertionError("Accepted already-initialized force/displacement XML")
     assert math.isclose(.0325+N*DT,.03275,abs_tol=1e-12)
+    # Regression for the exact 91767 staging mistake: --preflight used our
+    # isolated CORE but --run accidentally loaded the frozen mainline driver.
+    # This is deliberately an offline probe; no Slurm, solver or file writes.
+    import tempfile
+    from unittest import mock
+    class StopBeforeSolver(Exception): pass
+    loaded=[]
+    def capture(path,name):
+        loaded.append((Path(path),name))
+        raise StopBeforeSolver()
+    with tempfile.TemporaryDirectory(prefix="crossjob-execution-path-") as tmp:
+        base=Path(tmp)
+        with mock.patch.dict(os.environ,{"SLURM_JOB_ID":"MOCK_NO_SLURM"}), \
+             mock.patch(__name__+".provenance",return_value=base), \
+             mock.patch(__name__+".imported",side_effect=capture):
+            try:
+                run(base,base/"trial")
+            except StopBeforeSolver:
+                pass
+            else:
+                raise AssertionError("Execution-path probe reached beyond core loader")
+    assert loaded==[(CORE,"isolated_own_restart_driver")], loaded
+    print("FSI_ACTUAL_RUN_CORE_PIN_REGRESSION_PASS")
     print("FSI_RESTART_ALIGNED_REFERENCE_AND_BOTH_INITIAL_FIELDS_SELFTEST_PASS")
 
 def run(base,work):
