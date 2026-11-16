@@ -674,6 +674,75 @@ also be checked before actual production.
 
 No vendor file edits and no Slurm submissions. Preserve 91543.
 
+## 2026-11-16: 91878 first fluid-pressure/ALE differential **actual read-only output**
+
+The user executed the extended `audit-91819-continuous-vs-restart-first-pressure-readonly.py`
+from `7303881fde506ffd698c2cd1ad5e5c3bc4f41fd1`.
+Real logs at **physical 0.032625 s**, compare uninterrupted
+91543 to isolated 91878 (Displacement initialized, Force not initialized):
+
+| First native-fluid quantity | 91543 continuous | 91878 new process |
+|---|---:|---:|
+| first meshCo max | 1.8095493183964e-5 | 0.12932920678317 |
+| second `pcorr` initial residual | 0.31611287214121 | 0.20040800784761 |
+| first `p` initial residual | 0.94098821879041 | 0.9454347188419 |
+| first *provisional* fluid total Fx (N) | 11.154076549809 | 11.515278323918 |
+| last fluid total Fx in accepted time-window (N) | 0.017880777427529 | 0.072198630905944 |
+| number force evaluations/iterations | 22 | 29 |
+
+**Distinctive evidence**: trials 91767, 91819, 91878 have
+**exactly identical first meshCo = 0.12932920678317**, first
+`pcorr` residual 1 then 0.20040800784761, first `p` initial
+residual 0.9454347188419, first provisional total
+Fx 11.515278323918, despite differing Force initialize and
+`purgeWrite` and in 91819 preservation of 15 historical disk
+time folders. This rules out these tested switches as the
+explanation for **the identical first-step anomaly**. New 91878
+at t=.03275 has first meshCo ~2.61e-5, yet accepted total
+Fx is -0.120739062 N vs continuous +0.0181010198 N:
+the state error **persists** even after the next time step's
+low initial meshCo.
+
+Do **not** mistake first provisional ~11 N fluid force for accepted
+~0.018 N, since uninterrupted 91543 also has ~11 N provisional
+PIMPLE iterations. The first solver-pressure/mesh trajectories
+have diverged before final acceptance.
+
+Strong engineering hypothesis (not yet causally isolated):
+`segment.py:stage_inputs()` copies file snapshots, but
+`segment.py:run()` starts new separate OpenFOAM and preCICE
+processes without serializing in-memory mesh oldPoints,
+mesh motion flux, and preCICE map/IQN iteration history.
+Official preCICE OpenFOAM adapter documentation states that
+`mesh_.oldPoints()`, `mesh_.phi()`, `V/V0/V00` are
+**explicitly checkpointed for in-process implicit iteration**;
+this does NOT establish their disk persistence across Slurm jobs:
+https://precice.org/docs/adapters/openfoam/extend/
+OpenFOAM v2512 `polyMesh::oldPoints()` initializes
+`oldPointsPtr_` from current points when absent, and
+`movePoints()` updates the in-memory oldPoints pointer:
+https://api.openfoam.com/2512/polyMesh_8C_source.html
+A new subprocess from latestTime cannot be assumed to preserve
+such in-memory history merely by copying numeric time folders.
+
+preCICE's IQN-ILS history is also rebuilt in a fresh session,
+but loss of acceleration history **alone is NOT evidence of
+unphysical accepted force**: under correct solver state, fresh
+acceleration may converge to the same physical solution. Avoid
+claiming the 7147x meshCo anomaly uniquely proves oldPoints
+rather than pointwise mapped initial displacement or initial
+ALE face flux.
+
+The read-only script now includes a programmatic
+`EARLIEST_FLUID_DIVERGENCE` diagnostic with unit tests,
+recording numerical first pressure/mesh evidence and the
+source-vs-restart `restartFromDeformed true->false` policy
+change. It deliberately marks native in-memory ALE loss as
+unverified until cross-session state is actually traced.
+
+The 91006 and live 91543 are kept immutable; no sbatch
+or new FSI run has been launched.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
