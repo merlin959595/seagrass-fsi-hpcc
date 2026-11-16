@@ -22,6 +22,10 @@ jobs:
         run: |
           python3 -m py_compile hpcc/restart-forensics/try-reference-false-displacement-only.py
           python3 hpcc/restart-forensics/try-reference-false-displacement-only.py --self-test
+      - name: Read-only available ALE snapshot audit self-test
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
+          python3 hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py --self-test
       - name: Read-only ALE mesh point step forensic self-test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91878-ale-point-step-readonly.py
