@@ -19,6 +19,25 @@
 - Uninterrupted long job 91543 crossed that time with mesh Co ~0.2374.
 - Hypothesis not yet proven: fluid/solid reference-frame mismatch in our restart initialization, compounded by unpersisted ALE history. Do not blame or patch upstream code.
 
+## 91767 disclosure and repair
+
+The first submitted 2-window test (91767) was pinned at
+`5d995bebb2df7c887019a941cd0b6791f5569dd4`. Its
+`--self-test` and `--preflight` used `FSI_ISOLATED_CORE`, **but its
+actual `run()` loaded the older `seagrass-fsi-mainline/bin/segment.py`**.
+This is OUR orchestration defect, not a solver defect. Results from 91767
+may still inform the original-reference / initial-data hypothesis, but must
+NOT be represented as validating the corrected checkpoint copy policy.
+Do not cancel or modify 91767 in flight; preserve it as an old-driver control.
+
+Fixed in commit `99812f5239d8866b728f1baa0492a67648773294`.
+A subsequent regression test now invokes the actual `run()` entrypoint
+with an isolated sentinel CORE and stops before launching any solver.
+GitHub Actions proves the **correct Python module is selected**, not that
+physical continuity is achieved. A new independent test, if warranted after
+reading 91767 results, must use revision >=
+`b8ab0eb986175b8ec126b4e65449edbbc6880f21` pinned throughout.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
