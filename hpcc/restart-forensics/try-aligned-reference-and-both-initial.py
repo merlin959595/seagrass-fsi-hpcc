@@ -52,8 +52,10 @@ def patch_ref(txt):
     return changed
 
 def patch_xml(txt):
-    b=imported(BASE/"clean-production-src/restart-both-initial-fields-candidate.py",
-               "verified_both_initial_fields")
+    f=BASE/"clean-production-src/restart-both-initial-fields-candidate.py"
+    if not f.is_file():
+        f=Path(__file__).resolve().parent.parent/"clean-production/restart-both-initial-fields-candidate.py"
+    b=imported(f,"verified_both_initial_fields")
     return b.patch(txt)
 
 def provenance(base):
@@ -135,6 +137,17 @@ def self_test():
     try:patch_ref(example.replace(" true;"," false;"))
     except RuntimeError:pass
     else:raise AssertionError("Accepted no-op reference")
+    sample='''<precice-configuration><coupling-scheme:parallel-implicit>
+<exchange data="Force" mesh="Solid-Mesh" from="Fluid" to="Solid" />
+<exchange data="Displacement" mesh="Solid-Mesh" from="Solid" to="Fluid" />
+</coupling-scheme:parallel-implicit></precice-configuration>'''
+    fixed=patch_xml(sample)
+    assert fixed.count('initialize="yes"')==2, fixed
+    assert 'data="Force" mesh="Solid-Mesh" from="Fluid" to="Solid" initialize="yes"' in fixed
+    assert 'data="Displacement" mesh="Solid-Mesh" from="Solid" to="Fluid" initialize="yes"' in fixed
+    try:patch_xml(fixed)
+    except RuntimeError:pass
+    else:raise AssertionError("Accepted already-initialized force/displacement XML")
     assert math.isclose(.0325+N*DT,.03275,abs_tol=1e-12)
     print("FSI_RESTART_ALIGNED_REFERENCE_AND_BOTH_INITIAL_FIELDS_SELFTEST_PASS")
 
