@@ -502,6 +502,60 @@ not in this GitHub branch.
 Confirmed long 91543 still RUNNING on `cpu-40-4`, elapsed
 14:50:20. No new FSI job authorized.
 
+## 2026-11-16: Structural HHT history restore does NOT overwrite initial preCICE Displacement
+
+From the user's full native `SeagrassPersistent.h` and source/trial watch integral
+logs (user-supplied, no HPC direct access):
+
+- `sg_restore_state` consumes six arrays in order:
+  `velocity`, `acceleration`, `internal_force`,
+  `external_force`, `nodal_external_force`, `damping_force`.
+  Array lengths are `nodes*mt`, `nodes*mt`, `equations`,
+  `equations`, `nodes*mt`, `equations`. It checks
+  magic `SGHHT02\0`, exact node/DOF/equation counts, time within 1e-10,
+  finiteness of every element, EOF. Its self-contained implementation
+  does **not** mutate `vold` (structural nodal displacement), initial
+  preCICE interface geometry, or fluid fields. 91878 reports
+  `nodes=51855 mt=4 time=0.0325`; there is evidence of successful file read.
+- Last accepted source 91006 at relative time 0.03 (physical
+  t=0.0325) has `Force0=0.0176638208 N`,
+  `Displacement0=30.0624021`,
+  `Displacement1=-1.95627073e-6`,
+  `Displacement2=-1.57777164` (watch-integrals).
+  91878 restarted preCICE at t=0 outputs **exactly the same three
+  Displacement watch integrals**. Its initial Force0 is zero
+  *deliberately* because Force exchange was not initialized; 91819
+  (with Force initialized) had nearly identical erroneous accepted loads.
+- First accepted trial 91878 watch at physical t=0.032625:
+  `Force0=.0721986309`, `Disp0=30.1707178`,
+  `Disp2=-1.58610136`. Second at t=0.03275:
+  `Force0=-.120739062`, `Disp0=30.2771841`,
+  `Disp2=-1.59384866`. Both force samples are physically invalid
+  compared with uninterrupted 91543.
+- PreCICE initial `Displacement` is written by stock
+  CCX adapter from `vold` via `getNodeDisplacements()`,
+  prior to the later custom HHT-velocity/force restoration. Since
+  `sg_restore_state()` does not touch `vold`, the **initial
+  Displacement** is not made inconsistent by the log order itself.
+  Do not propose changing this order without first seeing the actual
+  patched caller and its effects on the first increment.
+- The original standard CCX adapter `nonlingeo_precice.c` calls
+  `Precice_Setup` before first `Precice_ReadCouplingData` and
+  repeated `vini` checkpointing. This does not determine where the
+  custom `sg_restore_state` is placed because that patched caller is
+  unavailable in the GitHub branch.
+- Remaining live explanations: wrong fluid initial mapped boundary
+  *per-node* displacement despite matching overall integrals,
+  missing/reconstructed native ALE old-time mesh motion/pressure flux
+  state on new OpenFOAM process, or structural internal dynamic
+  state initialization before the first numerical increment.
+  The first recorded MeshCo of 91819 and 91878 (~0.12933)
+  vs same-time continuous 91543 (~1.81e-5) is a strong **symptom**
+  but not proof of root cause; later iterates have ~0.22 in both.
+
+Do not perform additional Force-initialization trials.
+No new Slurm jobs. 91543 and original source 91006 must stay untouched.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
