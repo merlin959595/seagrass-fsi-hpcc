@@ -451,23 +451,29 @@ def previous_last_accepted_force(source):
     return result
 
 def validate_cross_job_force(source,log,max_relative_error=.20):
-    """A solver exit 0 is not a scientific restart PASS; reject initial huge loads.
+    """Diagnostic only: the first PIMPLE force is an UNACCEPTED iteration.
 
-    The provisional first computed force is kept even if IQN later converges.
-    This flags the known 91767 failure: 11.515N vs the 0.0176638N source.
+    Do not compare it with the previous *accepted* preCICE watch integral
+    as an acceptance gate. 91006 and continuous 91543 also have first
+    provisional forces near 11 N while their accepted forces are ~0.018 N.
+    Our earlier 650x failure criterion mixed different coupling stages.
+    Actual continuity is checked using accepted force windows separately.
     """
-    last_time,baseline=previous_last_accepted_force(source)
-    if abs(baseline)<1e-12:
-        raise RuntimeError("Cross-job force gate: reference force is near zero; use absolute tolerance evidence")
-    first=first_computed_fluid_force(log)
-    rel=abs(first[0]-baseline)/abs(baseline)
-    if not math.isfinite(rel) or rel>max_relative_error:
-        raise RuntimeError(
-            f"UNPHYSICAL_CROSS_JOB_FIRST_FORCE_JUMP source_Fx={baseline:.12g} "
-            f"first_Fx={first[0]:.12g} relative_error={rel:.9g} "
-            f"threshold={max_relative_error} prior_relative_t={last_time:.9g}")
-    return {"prior_Fx_N":baseline,"first_computed_Fx_N":first[0],
-            "relative_error":rel,"threshold":max_relative_error}
+    prior_time,accepted=previous_last_accepted_force(source)
+    provisional=first_computed_fluid_force(log)
+    ratio=(abs(provisional[0]-accepted)/abs(accepted)
+           if abs(accepted)>1e-12 else None)
+    return {
+        "status":"PROVISIONAL_NOT_COMPARABLE_TO_ACCEPTED",
+        "prior_accepted_relative_time_s":prior_time,
+        "prior_accepted_Fx_N":accepted,
+        "first_provisional_Fx_N":provisional[0],
+        "first_provisional_Fy_N":provisional[1],
+        "first_provisional_Fz_N":provisional[2],
+        "provisional_to_accepted_relative_difference_DIAGNOSTIC_ONLY":ratio,
+        "used_as_pass_fail_gate":False,
+        "pass_fail_from":"validate_accepted_force_continuity"
+    }
 
 def validate_accepted_force_continuity(source,solid_log,dt,
                                         max_relative_error=.20):
@@ -712,16 +718,18 @@ def self_test():
         force_log.write_text(
             "Time = 0.032625\nforces bladeForces write:\n"
             "Total : (11.515278323918 0 0)\n")
-        try:
-            validate_cross_job_force(root,force_log)
-        except RuntimeError as e:
-            assert "UNPHYSICAL_CROSS_JOB_FIRST_FORCE_JUMP" in str(e)
-        else:
-            raise AssertionError("91767 unphysical load was accepted")
+        diagnostic=validate_cross_job_force(root,force_log)
+        assert diagnostic["status"]=="PROVISIONAL_NOT_COMPARABLE_TO_ACCEPTED"
+        assert diagnostic["used_as_pass_fail_gate"] is False
+        assert diagnostic["first_provisional_Fx_N"]>11
+        # First provisional force is not the criterion; only accepted data
+        # can approve a cross-job continuation.
         force_log.write_text(
             "Time = 0.032625\nforces bladeForces write:\n"
             "Total : (0.018 0 0)\n")
-        assert validate_cross_job_force(root,force_log)["relative_error"]<.20
+        diagnostic=validate_cross_job_force(root,force_log)
+        assert diagnostic["first_provisional_Fx_N"]==.018
+        assert diagnostic["used_as_pass_fail_gate"] is False
     with tempfile.TemporaryDirectory() as td:
         root=Path(td)
         source=root/"source";staged=root/"staged"
