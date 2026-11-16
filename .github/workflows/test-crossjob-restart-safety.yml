@@ -1,0 +1,20 @@
+name: Cross-job restart safety (offline)
+on:
+  push:
+    branches:
+      - fix/our-crossjob-restart-20261116
+  workflow_dispatch:
+jobs:
+  script-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n hpcc/clean-production/submit.sh hpcc/clean-production/compute.sh
+      - name: Python syntax
+        run: python3 -m py_compile hpcc/clean-production/segment.py hpcc/clean-production/test-submit-mock.py
+      - name: Restart quality policy unit tests
+        run: python3 hpcc/clean-production/segment.py --self-test
+      - name: Mocked Slurm submission regression
+        run: python3 hpcc/clean-production/test-submit-mock.py
