@@ -239,6 +239,9 @@ def self_test():
         detail={"parent_run":str(parent)}
         prepare_isolated_stage(staged,detail,core_dummy,1,staged)
         assert detail["isolated_purgeWrite"]==0
+        assert detail["source_equivalent_precice_session"] is False
+        assert detail["reference_registration_policy_changed_from_source"] is True
+        assert detail["precice_IQN_history_restored"] is False
         assert all(x["staged_time_folders"]==15
                    for x in detail["staged_history_per_rank"].values())
         assert "purgeWrite 0;" in (staged/"fluid/system/controlDict").read_text()
@@ -297,6 +300,13 @@ def prepare_isolated_stage(out,meta,core,stage,dest):
     foam.write_text(patch_ref(foam.read_text()))
     meta["isolation_change"]="restartFromDeformed=false PLUS both Force/Displacement initialize=yes"
     meta["no_other_solver_changes"]=True
+    # This experiment deliberately re-registers the fluid coupling interface
+    # at a DIFFERENT reference frame than 91006/91543 and starts a new preCICE
+    # session with NO restored IQN/map state. Never label it exact continuation.
+    meta["source_equivalent_precice_session"]=False
+    meta["reference_registration_policy_changed_from_source"]=True
+    meta["precice_IQN_history_restored"]=False
+    meta["diagnostic_only_not_a_proven_physical_restart"]=True
     core.jwrite(dest/"FSI_SEGMENT_STAGE.json",meta)
     return out,meta
 
