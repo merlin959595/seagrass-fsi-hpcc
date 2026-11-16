@@ -54,13 +54,18 @@ def patch_ref(txt):
     return changed
 
 def patch_xml(txt):
-    # Prefer the isolated copies shipped with this experiment. Do not
-    # depend on or mutate the long job's or old mainline's scripts.
-    f=Path(__file__).resolve().with_name("restart-both-initial-fields-candidate.py")
-    if not f.is_file():
-        f=BASE/"clean-production-src/restart-both-initial-fields-candidate.py"
-    if not f.is_file():
+    # Production: require the precisely designated isolated helper.
+    # A pinned test-$hash.py lives under trials/, not next to the helpers.
+    private=os.environ.get("FSI_ISOLATED_HELPER_DIR")
+    if private:
+        f=Path(private).expanduser().resolve()/"restart-both-initial-fields-candidate.py"
+        if not f.is_file():
+            raise RuntimeError("Missing required isolated initialization helper "+str(f))
+    else:
+        # Offline CI only: helper checked out as a sibling in the repository.
         f=Path(__file__).resolve().parent.parent/"clean-production/restart-both-initial-fields-candidate.py"
+        if not f.is_file():
+            f=BASE/"crossjob-fix-20261116/restart-both-initial-fields-candidate.py"
     b=imported(f,"verified_both_initial_fields")
     return b.patch(txt)
 
