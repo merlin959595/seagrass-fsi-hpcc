@@ -34,15 +34,20 @@ def forces(log):
     markers = list(re.finditer(r"(?m)^\s*forces bladeForces write:", log))
     timepat = re.compile(r"(?m)^\s*Time\s*=\s*([+\-\d.eE]+)\s*$")
     vpat = re.compile(r"\bTotal\s*:\s*\(([+\-\d.eE]+)\s+([+\-\d.eE]+)\s+([+\-\d.eE]+)\)")
+    # Linear scan, not O(n^2) rescanning of prefixes of the live 91543 log.
+    times=[(m.start(),float(m.group(1))) for m in timepat.finditer(log)]
     found=[]
+    tindex=0
+    lasttime=None
     for i, marker in enumerate(markers):
+        while tindex<len(times) and times[tindex][0]<marker.start():
+            lasttime=times[tindex][1]
+            tindex+=1
         end=markers[i+1].start() if i+1<len(markers) else len(log)
         block=log[marker.end():end]
         force=vpat.search(block)
         if not force:
             continue
-        preceding=list(timepat.finditer(log[:marker.start()]))
-        lasttime=float(preceding[-1].group(1)) if preceding else None
         found.append({"physical_time_s":lasttime,
                       "Fx_N":float(force.group(1)),
                       "Fy_N":float(force.group(2)),
