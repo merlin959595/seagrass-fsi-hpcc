@@ -58,6 +58,14 @@ test "$(sha256sum "$FSI_INITIAL_CORE"|awk '{print $1}')" = "$FSI_INITIAL_CORE_HA
 echo "FSI_ALIGNED_REFERENCE_BOTH_INITIAL_DATA_START $(date -Is)"
 env -u BASH_ENV -u ENV singularity exec --cleanenv "$SIF" \
   /usr/bin/env -u BASH_ENV -u ENV /bin/bash --noprofile --norc -c '
+# The four argv values are Python paths, work, job ID and private core.
+# Do not expose them as positional parameters to the OpenFOAM bashrc.
+# Bashrc scripts can read "$@" and inadvertently interpret .py as Bash.
+FSI_TEST_SCRIPT="$1"
+FSI_TEST_WORK="$2"
+FSI_TEST_JOB="$3"
+FSI_TEST_CORE="$4"
+set --
 set +eu
 export WM_MPLIB=SYSTEMOPENMPI
 source /usr/lib/openfoam/openfoam2512/etc/bashrc
@@ -75,9 +83,9 @@ test -x "$(command -v pimpleFoam)"
 test -x "$(command -v precice-config-validate)"
 test -x "$ROOT/scripts/native/bin/ccx_preCICE_persistent_v2"
 test -f "$ROOT/scripts/native/lib/libseagrassReferenceRestart.so"
-export SLURM_JOB_ID="$3"
-export FSI_ISOLATED_CORE="$4"
-python3 "$1" --base "$HOME/hpcc-fsi" --work "$2" --run
+export SLURM_JOB_ID="$FSI_TEST_JOB"
+export FSI_ISOLATED_CORE="$FSI_TEST_CORE"
+python3 "$FSI_TEST_SCRIPT" --base "$HOME/hpcc-fsi" --work "$FSI_TEST_WORK" --run
 ' bash "$FSI_INITIAL_SOURCE" "$WORK" "$SLURM_JOB_ID" "$FSI_INITIAL_CORE"
 echo "FSI_REFERENCE_ALIGNMENT_TEST_EXECUTION_COMPLETE"
 SBATCH
