@@ -14,9 +14,28 @@ import hashlib
 
 SOURCE_REL="fsi-long-stage0-job91006/runs/hpcc-implicit-002/fluid"
 TRIAL_REL="crossjob-fix-20261116/force-ab-tests/trial-91878/runs/hpcc-implicit-002/fluid"
-TIMES=(("source_prior", ".032375", ".0325"),("trial_first",".0325",".032625"),
-       ("trial_second",".032625",".03275"))
+TIMES=(("source_prior", "0.032375", "0.0325"),
+       ("trial_first","0.0325","0.032625"),
+       ("trial_second","0.032625","0.03275"))
 FILES=("polyMesh/points","pointDisplacement")
+
+def time_dir(processor, number):
+    """Resolve actual numeric time-folder spelling, never invent .0325."""
+    if not processor.is_dir():
+        raise FileNotFoundError(f"Missing processor directory {processor}")
+    target=float(number)
+    matches=[]
+    for entry in processor.iterdir():
+        if not entry.is_dir(): continue
+        try: value=float(entry.name)
+        except ValueError: continue
+        if math.isfinite(value) and abs(value-target)<1e-11:
+            matches.append(entry)
+    if len(matches)!=1:
+        raise RuntimeError(f"Time {number} in {processor}: {len(matches)} "
+                           f"matching directories; existing numeric folders="
+                           f"{sorted(x.name for x in processor.iterdir() if x.is_dir())}")
+    return matches[0]
 
 def parser_module():
     path=Path(__file__).resolve().with_name("audit-binary-ale-coordinates.py")
@@ -71,17 +90,21 @@ def rank_one(base,rank,readvec):
     now=base/TRIAL_REL/f"processor{rank}"
     result={"rank":rank,"windows":{},"saved_t0_byte_equal":{},
             "geometry_reference_residuals":{}}
+    source0=time_dir(old,"0.0325")
+    trial0=time_dir(now,"0.0325")
     for field in FILES:
-        p=old/"0.0325"/field
-        q=now/"0.0325"/field
+        p=source0/field
+        q=trial0/field
         a=digest(p);b=digest(q)
         result["saved_t0_byte_equal"][field]=(a==b) if a and b else None
     for label,t0,t1 in TIMES:
         root=old if label=="source_prior" else now
         section={}
+        from_time=time_dir(root,t0)
+        to_time=time_dir(root,t1)
         for field in FILES:
-            p=root/t0/field
-            q=root/t1/field
+            p=from_time/field
+            q=to_time/field
             if not p.is_file() or not q.is_file():
                 section[field]={"available":False,"missing":[str(f)
                            for f in (p,q) if not f.is_file()]}
@@ -90,7 +113,7 @@ def rank_one(base,rank,readvec):
             section[field]={"available":True,"change":delta_stats(a,b)}
             if field=="polyMesh/points":
                 ref=root/"constant/polyMesh/points"
-                field_d=root/t1/"pointDisplacement"
+                field_d=to_time/"pointDisplacement"
                 if ref.is_file() and field_d.is_file():
                     section["saved_geometry_minus_reference_plus_displacement_max_m"] = (
                        normmax_residual(b,readvec(field_d),readvec(ref)))
@@ -137,6 +160,16 @@ def self_test():
         p=Path(d)/"sample"
         p.write_bytes(b"abc")
         assert digest(p)==hashlib.sha256(b"abc").hexdigest()
+        proc=Path(d)/"processor0"
+        (proc/"0.0325").mkdir(parents=True)
+        (proc/"0.032375").mkdir()
+        assert time_dir(proc,".0325").name=="0.0325"
+        assert time_dir(proc,"0.032375").name=="0.032375"
+        assert time_dir(proc,"0.0325").name=="0.0325"
+        (proc/".0325").mkdir()
+        try: time_dir(proc,"0.0325")
+        except RuntimeError as err:assert "matching directories" in str(err)
+        else:raise AssertionError("Ambiguous numeric time directory accepted")
     print("ALE_POINT_STEP_DIFFERENTIAL_SELFTEST_PASS")
 
 def main():
