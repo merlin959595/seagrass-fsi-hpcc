@@ -180,6 +180,55 @@ first MeshCo, configuration flag, and available accepted-window data.
 A missing old trial or missing accepted data is not counted as a numerical
 pass/fail. This is evidence gathering, not a new calculation.
 
+## 2026-11-16: Historical initialization matrix; next controlled experiment
+
+The user confirmed `91543` still RUNNING on `cpu-40-4` at 12:21:12
+elapsed (at the time of the latest status query).
+
+Existing trials show:
+- `91504`: `restartFromDeformed=false`, NO initial exchanges;
+  first MeshCo 20848.688964, fluid exit 136, zero accepted windows.
+- `91538`: `true`, Displacement initialized, Force not;
+  first MeshCo 2.78771453, fluid exit 1, solid 201, zero accepted windows.
+- `91542`: `true`, both Force and Displacement initialized;
+  first MeshCo 2.78771453, fluid exit 1, solid 201, zero accepted windows.
+- `91767`: `false`, both initialized; first MeshCo 0.129329;
+  2 windows converged numerically but accepted Fx 0.0721967891 and
+  -0.120743427 N versus uninterrupted 91543 0.0178807774 and
+  0.0181010198 N.
+- `91819`: same initial options as 91767, with all 15 source time folders;
+  same force errors, demonstrating the history-copy fix is insufficient.
+
+**Interpretation:** Force initialization alone does not correct the
+first-motion problem with `restartFromDeformed=true` (91538 versus 91542).
+The combination `false+both` mitigates a fatal first mesh motion,
+but has materially wrong accepted loads. A failure to reach the first
+accepted window is not a force-continuity comparison.
+
+**Missing single-variable cell:** `restartFromDeformed=false`,
+Displacement initialize=yes, Force NOT initialized. This compares
+directly with 91819 on only one preCICE exchange initialization flag.
+Private implementation:
+- `try-reference-false-displacement-only.py`
+- `submit-false-disp-only-ab-2window.sh`
+
+A single isolated two-window trial may be launched on a node excluding
+91543 once the corrected candidate passes offline tests. The script
+retains the source time history, uses the same pinned source 91006,
+same OpenFOAM v2512 + preCICE 3.4.1 + CalculiX 2.20 binaries,
+same fluid reference=false, same `purgeWrite 0`, same dt 0.000125,
+same physical mesh, same solid restart, and changes only Force
+`initialize=yes` to no initialization. It creates a new
+`force-ab-tests/trial-JOBID` directory, no job chaining.
+
+Acceptance is ONLY based on native exits 0, two accepted windows,
+native mesh, Co guards, and accepted Fx matching 91543 at the same
+physical times; an uninitialized Force at t=0 is explicitly NOT treated
+as a failed initial mapping, and provisional 11N PIMPLE force is not a
+failure trigger. A negative A/B result should end this branch of
+configuration tweaking; investigate native restart of ALE and coupling
+state without altering the vendor code.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
