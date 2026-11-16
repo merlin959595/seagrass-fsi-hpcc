@@ -529,7 +529,8 @@ def validate_accepted_force_continuity(source,solid_log,dt,
                 f"source_Fx={baseline:.12g} accepted_Fx={fx:.12g} "
                 f"relative_error={err:.9g} threshold={max_relative_error}")
         comparison={"window":index,"relative_time_s":t,
-                    "accepted_Fx_N":fx,"relative_error_to_prior":err}
+                    "accepted_Fx_N":fx,"relative_error":err,
+                    "relative_error_to_prior":err}
         if continuous_reference_log is not None:
             phys=absolute_restart_time_s+t
             reference_t=round(phys-reference_origin_time_s,9)
