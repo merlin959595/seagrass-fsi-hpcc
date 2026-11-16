@@ -28,8 +28,11 @@ def compact_trace(path, label):
     if not path.is_file():
         return {"file_exists":False,"path":str(path)}
     kept={f"{t:.6f}":{"matching_time_blocks":0,"samples":[],
+                      "force_evaluations":0,
                       "first_forces":[],"last_forces":[]} for t in TGT}
     current=None
+    reading_force=False
+    after_force_header=False
     count=0
     time_matches=0
     first_time=None
@@ -43,6 +46,8 @@ def compact_trace(path, label):
             t=float(m.group(1))
             if first_time is None:first_time=t
             current=None
+            reading_force=False
+            after_force_header=False
             for goal in TGT:
                 if abs(t-goal)<5e-10:
                     current=f"{goal:.6f}"
@@ -57,15 +62,28 @@ def compact_trace(path, label):
             continue
         if current is None:continue
         data=kept[current]
-        m=FORCERE.match(line)
+        # Function object prints TWO identically named triple groups:
+        # "Sum of forces" AND "Sum of moments". The previous parser included
+        # moment components in "last forces" and falsely reported ~1e-10 N.
+        # Only parse Total/Pressure/Viscous BETWEEN these two headings.
+        if "forces bladeForces write:" in line:
+            after_force_header=True
+            reading_force=False
+        elif after_force_header and "Sum of forces" in line:
+            reading_force=True
+            after_force_header=False
+        elif "Sum of moments" in line:
+            reading_force=False
+            after_force_header=False
+        m=FORCERE.match(line) if reading_force else None
         if m:
             kind=m.group(1)
-            try:
-                vals=[float(v) for v in m.group(2).split()]
+            try: vals=[float(v) for v in m.group(2).split()]
             except ValueError: vals=[]
             if len(vals)==3 and math.isfinite(vals[0]):
+                if kind=="Total":data["force_evaluations"]+=1
                 data["last_forces"].append([kind,vals[0]])
-                if len(data["first_forces"])<9:data["first_forces"].append([kind,vals[0]])
+                if len(data["first_forces"])<3:data["first_forces"].append([kind,vals[0]])
             continue
         if SOLVERRE.search(line):
             if len(data["samples"])<35 or ("Solving for p" in line and len(data["samples"])<80):
@@ -171,9 +189,13 @@ def concise_summary(data):
         lines.append("REFERENCE_SETTINGS="+json.dumps(entry["settings"],ensure_ascii=False))
         lines.append(f"LOG_LINES={entry['line_count_examined']} FIRST_LOG_T={entry['first_log_time_s']}")
         for t,block in entry["trace_targets"].items():
-            lines.append(f"TIME={t} ITERATIONS={block['matching_time_blocks']} "
-                         f"INITIAL_FORCE_COMPONENTS={block['first_forces'][:3]} "
-                         f"FINAL_FORCE_COMPONENTS={block['last_forces'][-3:]}")
+            lines.append(f"TIME={t} FLUID_TIME_RECORDS={block['matching_time_blocks']} "
+                         f"FORCE_EVALUATIONS={block['force_evaluations']} "
+                         f"FIRST_PROVISIONAL_FORCE_COMPONENTS={block['first_forces'][:3]} "
+                         f"LAST_FLUID_FORCE_COMPONENTS={block['last_forces'][-3:]}")
+            # The last fluid force is still not automatically a validated
+            # accepted preCICE value: compare the accepted Solid watch log.
+
             selected=[d["text"] for d in block["samples"]
                       if "Solving for p" in d["text"] or "Courant Number" in d["text"]]
             lines.extend("  SOLVER "+x for x in selected[:8])
@@ -190,15 +212,33 @@ def self_test():
           "Courant Number mean: 0.01 max: 0.2\n"
           "GAMG: Solving for p, Initial residual = 0.1, Final residual = 1e-6\n"
           "forces bladeForces write:\n"
-          "    Total    : (11.515 0 -0.1)\n"
-          "    Pressure : (11.514 0 -0.1)\n"
-          "    Viscous  : (0.001 0 0)\n"
+          "    Sum of forces\n"
+          "        Total    : (11.515 0 -0.1)\n"
+          "        Pressure : (11.514 0 -0.1)\n"
+          "        Viscous  : (0.001 0 0)\n"
+          "    Sum of moments\n"
+          "        Total    : (1e-10 0 0)\n"
+          "        Pressure : (2e-10 0 0)\n"
+          "        Viscous  : (-1e-10 0 0)\n"
+          "forces bladeForces write:\n"
+          "    Sum of forces\n"
+          "        Total    : (0.018 0 -0.0001)\n"
+          "        Pressure : (0.017 0 -0.0001)\n"
+          "        Viscous  : (0.001 0 0)\n"
+          "    Sum of moments\n"
+          "        Total    : (-1e-12 0 0)\n"
+          "        Pressure : (-2e-12 0 0)\n"
+          "        Viscous  : (1e-12 0 0)\n"
           "Time = 0.03275\n"
         )
         x=compact_trace(p,"mock")
         a=x["targets"]["0.032625"]
         assert a["matching_time_blocks"]==1
-        assert a["first_forces"][0]==["Total",11.515]
+        assert a["force_evaluations"]==2
+        assert a["first_forces"]==[["Total",11.515],
+                                   ["Pressure",11.514],["Viscous",0.001]]
+        assert a["last_forces"][-3:]==[["Total",0.018],
+                                       ["Pressure",0.017],["Viscous",0.001]]
         assert "Solving for p" in str(a["samples"])
     print("READ_ONLY_PRESSURE_SOLVER_TRACE_SELFTEST_PASS")
 
