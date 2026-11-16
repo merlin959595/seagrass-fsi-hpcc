@@ -204,6 +204,48 @@ def self_test():
         "prterun noticed that process rank 6 exited on signal 8 "
         "(Floating point exception)\\n")
 
+    # Static stage preparation regression: 15 history times on all 8 ranks,
+    # output-only purgeWrite 0, original reference & both initialized data.
+    import tempfile
+    from types import SimpleNamespace
+    with tempfile.TemporaryDirectory(prefix="fsi-history-stage-test-") as temp:
+        parent=Path(temp)/"source"
+        staged=Path(temp)/"staged"
+        for rank in range(8):
+            for root in (parent,staged):
+                for idx in range(15):
+                    (root/f"fluid/processor{rank}"/f"{.0025+idx*.002:.6f}").mkdir(parents=True)
+        (staged/"fluid/system").mkdir(parents=True)
+        (staged/"fluid/system/controlDict").write_text("purgeWrite 2;\n")
+        (staged/"fluid/system/preciceDict").write_text(
+            "modules (FSI);\nFSI { restartFromDeformed true; }\n")
+        (staged/"precice-config.xml").write_text(sample)
+        def local_verify(src,dst,stage):
+            hist={}
+            for rank in range(8):
+                a=sorted((src/f"fluid/processor{rank}").iterdir())
+                b=sorted((dst/f"fluid/processor{rank}").iterdir())
+                if [p.name for p in a]!=[p.name for p in b]:
+                    raise RuntimeError("OUR_RESTART_HISTORY_COPY_FAILED")
+                hist[f"processor{rank}"]={"staged_time_folders":len(b)}
+            return hist
+        core_dummy=SimpleNamespace(
+            verify_staged_fluid_history=local_verify,
+            jwrite=lambda path,data: path.write_text(json.dumps(data)))
+        detail={"parent_run":str(parent)}
+        prepare_isolated_stage(staged,detail,core_dummy,1,staged)
+        assert detail["isolated_purgeWrite"]==0
+        assert all(x["staged_time_folders"]==15
+                   for x in detail["staged_history_per_rank"].values())
+        assert "purgeWrite 0;" in (staged/"fluid/system/controlDict").read_text()
+        assert "restartFromDeformed false;" in (staged/"fluid/system/preciceDict").read_text()
+        assert (staged/"precice-config.xml").read_text().count('initialize="yes"')==2
+        assert "purgeWrite 2;" not in (staged/"fluid/system/controlDict").read_text()
+        (staged/"fluid/processor0"/f"{.0025:.6f}").rmdir()
+        try:local_verify(parent,staged,1)
+        except RuntimeError:pass
+        else:raise AssertionError("Missing source history accepted")
+    print("ISOLATED_15_DIR_HISTORY_AND_FIELDS_STATIC_PREP_PASS")
     # Regression for the exact 91767 staging mistake: --preflight used our
     # isolated CORE but --run accidentally loaded the frozen mainline driver.
     # This is deliberately an offline probe; no Slurm, solver or file writes.
@@ -231,6 +273,29 @@ def self_test():
     print("FSI_ACTUAL_RUN_CORE_PIN_REGRESSION_PASS")
     print("FSI_RESTART_ALIGNED_REFERENCE_AND_BOTH_INITIAL_FIELDS_SELFTEST_PASS")
 
+def prepare_isolated_stage(out,meta,core,stage,dest):
+    """Only changes private staged input; explicitly does not touch source."""
+    src=Path(meta["parent_run"])
+    hist=core.verify_staged_fluid_history(src,out,stage)
+    if any(info["staged_time_folders"]<10 for info in hist.values()):
+        raise RuntimeError("91767_REPAIR_REQUIRES_SOURCE_15_TIME_FOLDERS_PER_RANK")
+    control=out/"fluid/system/controlDict"
+    before=control.read_text()
+    after,changes=re.subn(r"(\bpurgeWrite\s+)\d+(\s*;)",
+                          r"\g<1>0\2",before)
+    if changes!=1:raise RuntimeError("Expected one fluid purgeWrite control")
+    control.write_text(after)
+    meta["staged_history_per_rank"]=hist
+    meta["isolated_purgeWrite"]=0
+    xml=out/"precice-config.xml"
+    xml.write_text(patch_xml(xml.read_text()))
+    foam=out/"fluid/system/preciceDict"
+    foam.write_text(patch_ref(foam.read_text()))
+    meta["isolation_change"]="restartFromDeformed=false PLUS both Force/Displacement initialize=yes"
+    meta["no_other_solver_changes"]=True
+    core.jwrite(dest/"FSI_SEGMENT_STAGE.json",meta)
+    return out,meta
+
 def run(base,work):
     if not os.environ.get("SLURM_JOB_ID"):
         raise RuntimeError("Isolated Slurm compute allocation needed")
@@ -244,34 +309,7 @@ def run(base,work):
     original_stage=core.stage_inputs
     def stage_inputs(b,stage,parent,dest,max_windows,chain_root=None):
         out,meta=original_stage(b,stage,parent,dest,max_windows,chain_root)
-        # The first 91767 trial used the old driver, which copied only one
-        # time slice and discarded the earlier 14 history directories.
-        # Fail closed if any source history directory did not survive into
-        # our private copy. This check happens BEFORE solver launch.
-        src=Path(meta["parent_run"])
-        hist=core.verify_staged_fluid_history(src,out,stage)
-        if any(info["staged_time_folders"]<10 for info in hist.values()):
-            raise RuntimeError("91767_REPAIR_REQUIRES_SOURCE_15_TIME_FOLDERS_PER_RANK")
-        # Keep the history through the two-window trial for a meaningful
-        # post-run forensic comparison. IO retention only, not physics.
-        control=out/"fluid/system/controlDict"
-        control_before=control.read_text()
-        control_after,changes=re.subn(
-            r"(\bpurgeWrite\s+)\d+(\s*;)",
-            r"\g<1>0\2",control_before)
-        if changes!=1:
-            raise RuntimeError("Expected one fluid purgeWrite control")
-        control.write_text(control_after)
-        meta["staged_history_per_rank"]=hist
-        meta["isolated_purgeWrite"]=0
-        xml=out/"precice-config.xml"
-        xml.write_text(patch_xml(xml.read_text()))
-        foam=out/"fluid/system/preciceDict"
-        foam.write_text(patch_ref(foam.read_text()))
-        meta["isolation_change"]="restartFromDeformed=false PLUS both Force/Displacement initialize=yes"
-        meta["no_other_solver_changes"]=True
-        core.jwrite(dest/"FSI_SEGMENT_STAGE.json",meta)
-        return out,meta
+        return prepare_isolated_stage(out,meta,core,stage,dest)
     core.choose_windows=choose
     core.stage_inputs=stage_inputs
     err=None
