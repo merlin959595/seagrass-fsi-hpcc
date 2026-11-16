@@ -49,7 +49,7 @@ hashfile() { sha256sum "$1"|awk '{print $1}'; }
 pin() {
   local src="$1" name="$2" hash result
   hash="$(hashfile "$src")"
-  result="$OUTROOT/$name-$(echo "$hash"|cut -c1-16)"
+  result="$OUTROOT/$name-$(echo "$hash"|cut -c1-16).${src##*.}"
   if [[ -f "$result" ]];then cmp -s "$src" "$result" || exit 8
   else cp "$src" "$result";chmod a-w "$result";fi
   printf '%s\n' "$result"
