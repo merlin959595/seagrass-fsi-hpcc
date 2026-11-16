@@ -359,7 +359,7 @@ def self_test():
                      "0.000250 0.019 0 0 30.2 0 -1.6\n")
         assert all(x["Fx_rel_error"]<1e-12 for x in compare_accepted(a,b))
         b.write_text(b.read_text().replace("0.018 0","0.072 0"))
-        assert compare_accepted(a,b)[0]["Fx_rel_error"]>3
+        assert compare_accepted(a,b)[0]["Fx_rel_error"]>=2.99
     print("INCREMENTAL_DISPLACEMENT_RESTART_OFFLINE_SELFTEST_PASS")
 
 
