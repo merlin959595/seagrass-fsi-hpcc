@@ -100,12 +100,12 @@ if [[ -n "$ACTIVE" ]]; then
   echo "$ACTIVE" >&2
   exit 42
 fi
-# Check globally that nobody is already running a long seagrass FSI, even if
-# named using the retired submission mechanism. Do not cancel other tasks.
-OLD="$(squeue -h -u "$USER" -n fsi-real-long -o '%j %T')" || exit 43
-if [[ -n "$OLD" ]]; then
-  echo "Former FSI long-run jobs still queued. Refusing duplicate compute." >&2
-  echo "$OLD" >&2
+# Detect ALL FSI jobs including the actual 3-day job-name fsi-3d-safe.
+# The former test only checked fsi-real-long and missed active job 91543.
+ALL_JOBS="$(squeue -h -u "$USER" -o '%j %T')" || exit 43
+if printf '%s\n' "$ALL_JOBS" | grep -Eiq '(^|[[:space:]])[^[:space:]]*(fsi|seagrass|precice|ccx)[^[:space:]]*[[:space:]]'; then
+  echo "Another seagrass/FSI Slurm job exists; refusing duplicate long compute." >&2
+  printf '%s\n' "$ALL_JOBS" >&2
   exit 44
 fi
 umask 027
