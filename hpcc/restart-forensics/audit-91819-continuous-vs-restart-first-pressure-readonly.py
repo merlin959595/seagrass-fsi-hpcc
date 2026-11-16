@@ -164,6 +164,24 @@ def audit(base):
       "no_solver_or_Slurm_invoked":True,
     }
 
+def concise_summary(data):
+    lines=["READ_ONLY_DIFFERENTIAL_PRESSURE_SOLVE_SUMMARY"]
+    for case,entry in data["cases"].items():
+        lines.append(f"=== {case} ===")
+        lines.append("REFERENCE_SETTINGS="+json.dumps(entry["settings"],ensure_ascii=False))
+        lines.append(f"LOG_LINES={entry['line_count_examined']} FIRST_LOG_T={entry['first_log_time_s']}")
+        for t,block in entry["trace_targets"].items():
+            lines.append(f"TIME={t} ITERATIONS={block['matching_time_blocks']} "
+                         f"INITIAL_FORCE_COMPONENTS={block['first_forces'][:3]} "
+                         f"FINAL_FORCE_COMPONENTS={block['last_forces'][-3:]}")
+            selected=[d["text"] for d in block["samples"]
+                      if "Solving for p" in d["text"] or "Courant Number" in d["text"]]
+            lines.extend("  SOLVER "+x for x in selected[:8])
+    lines.append("COUPLED_INTEGRAL_WINDOW_SLOPES="+
+                 json.dumps(data["accepted_integral_derivatives"],ensure_ascii=False))
+    lines.append("NO_SBATCH_NO_SOLVER_NO_FILE_WRITES")
+    return "\n".join(lines)
+
 def self_test():
     with tempfile.TemporaryDirectory() as d:
         p=Path(d)/"fluid.log"
@@ -188,9 +206,12 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--base",type=Path,default=Path.home()/"hpcc-fsi")
     p.add_argument("--self-test",action="store_true")
+    p.add_argument("--summary",action="store_true")
     opt=p.parse_args()
     if opt.self_test:return self_test()
-    print(json.dumps(audit(opt.base.expanduser().resolve(strict=True)),ensure_ascii=False,indent=2))
+    result=audit(opt.base.expanduser().resolve(strict=True))
+    print(concise_summary(result) if opt.summary
+          else json.dumps(result,ensure_ascii=False,indent=2))
     print("NO_SBATCH_NO_SOLVER_NO_FS_MUTATIONS")
 
 if __name__=="__main__":main()
