@@ -54,7 +54,11 @@ def patch_ref(txt):
     return changed
 
 def patch_xml(txt):
-    f=BASE/"clean-production-src/restart-both-initial-fields-candidate.py"
+    # Prefer the isolated copies shipped with this experiment. Do not
+    # depend on or mutate the long job's or old mainline's scripts.
+    f=Path(__file__).resolve().with_name("restart-both-initial-fields-candidate.py")
+    if not f.is_file():
+        f=BASE/"clean-production-src/restart-both-initial-fields-candidate.py"
     if not f.is_file():
         f=Path(__file__).resolve().parent.parent/"clean-production/restart-both-initial-fields-candidate.py"
     b=imported(f,"verified_both_initial_fields")
