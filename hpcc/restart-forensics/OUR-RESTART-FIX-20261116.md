@@ -316,6 +316,46 @@ and does not pretend to reconstruct the missing 0.032625 snapshot.
 It runs read-only on the login node. No new FSI job or editing active
 91543 is justified.
 
+## 2026-11-16: Real 8-rank ALE snapshot reconstruction PASS (user-supplied output)
+
+The user executed `audit-91878-available-ale-snapshots-readonly.py`,
+revision `5cf7d54dde39360889805a40492afa3eeebb4e36`.
+
+**All eight ranks**:
+- Source `91006` has 15 numeric time folders; `91878` has 17.
+- At 0.0325s, `polyMesh/points`, `pointDisplacement`, `U`,
+  `p`, `phi`, `meshPhi`, and `V0` all have identical source
+  and restart SHA-256 files.
+- Neither source nor restart contains `points0` separately at
+  checked `0`, `constant`, or latest-time candidate locations.
+- The available `constant/polyMesh/points` reference yields
+  `max |X-Xconstant-D|` between **4.66e-18 and 1.14e-16 m** at
+  restart start and between ~5e-18 and 1.13e-16 m at final restart time,
+  across ranks. **This rules against gross saved geometry/displacement
+  inconsistency for that candidate reference**, but does not prove
+  which in-memory native `points0` was selected.
+- All 8 ranks have `0.03275` final `polyMesh/points` and
+  `pointDisplacement` written, but `0.032625` lacks both fields.
+- From 0.0325 -> 0.03275, saved point coordinate displacement
+  max ranges **34.43008 to 57.39399 microns**, agreeing with
+  `pointDisplacement` changes up to roundoff.
+- These are actual mesh-node increments, **not leaf tip displacements**.
+  No reference `91543` same-physical-time node field is available here,
+  so no claim of geometric trajectory identity/difference with 91543.
+
+**Interpretation update:** the earlier high-priority hypothesis
+of inconsistent saved `points0`/`polyMesh/points`/
+`pointDisplacement` is NOT supported by the now available
+read-only tests. Further comparison should prioritize
+(1) fluid–solid *registered interface reference geometry* and
+mapping; (2) actual first PIMPLE mesh flux/old-time recovery,
+including transient first Mesh Courant ~0.129 vs ~1.81e-5 in 91543;
+(3) CalculiX `*RESTART` dynamic state and structural
+reference, rather than changing the mesh/FSI numerical solver.
+
+Do not modify 91006, 91543, any vendor source or run new FSI
+until these read-only discriminators are checked.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
