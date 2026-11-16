@@ -14,9 +14,11 @@ test -s "$BASE/crossjob-fix-20261116/restart-initial-data-candidate.py"
 test -s "$BASE/crossjob-fix-20261116/restart-both-initial-fields-candidate.py"
 test -s "$BASE/seagrass-fsi-mainline/bin/segment.py"
 mkdir -p "$ROOT"
+H1="$(sha256sum "$BASE/crossjob-fix-20261116/restart-initial-data-candidate.py" | awk '{print $1}')"
+H2="$(sha256sum "$BASE/crossjob-fix-20261116/restart-both-initial-fields-candidate.py" | awk '{print $1}')"
 python3 -m py_compile "$SRC" "$CORE"
-FSI_ISOLATED_CORE="$CORE" python3 "$SRC" --self-test
-FSI_ISOLATED_CORE="$CORE" python3 "$SRC" --base "$BASE" --preflight
+FSI_ISOLATED_CORE="$CORE" FSI_ISOLATED_HELPER_DIR="$BASE/crossjob-fix-20261116" python3 "$SRC" --self-test
+FSI_ISOLATED_CORE="$CORE" FSI_ISOLATED_HELPER_DIR="$BASE/crossjob-fix-20261116" python3 "$SRC" --base "$BASE" --preflight
 ACTIVE="$(squeue -h -u "$USER" -n fsi-ownfix2 -o '%j %T')" || exit 42
 if [[ -n "$ACTIVE" ]];then
   echo "STOP: candidate already queued/running" >&2
@@ -55,6 +57,8 @@ WORK="$BASE/crossjob-fix-20261116/trials/trial-$SLURM_JOB_ID"
 test ! -e "$WORK"
 test "$(sha256sum "$FSI_INITIAL_SOURCE"|awk '{print $1}')" = "$FSI_INITIAL_HASH"
 test "$(sha256sum "$FSI_INITIAL_CORE"|awk '{print $1}')" = "$FSI_INITIAL_CORE_HASH"
+test "$(sha256sum "$FSI_INITIAL_HELPERS/restart-initial-data-candidate.py"|awk '{print $1}')" = "$FSI_INITIAL_HELPER1_HASH"
+test "$(sha256sum "$FSI_INITIAL_HELPERS/restart-both-initial-fields-candidate.py"|awk '{print $1}')" = "$FSI_INITIAL_HELPER2_HASH"
 echo "FSI_ALIGNED_REFERENCE_BOTH_INITIAL_DATA_START $(date -Is)"
 env -u BASH_ENV -u ENV singularity exec --cleanenv "$SIF" \
   /usr/bin/env -u BASH_ENV -u ENV /bin/bash --noprofile --norc -c '
@@ -65,6 +69,7 @@ FSI_TEST_SCRIPT="$1"
 FSI_TEST_WORK="$2"
 FSI_TEST_JOB="$3"
 FSI_TEST_CORE="$4"
+FSI_TEST_HELPERS="$5"
 set --
 set +eu
 export WM_MPLIB=SYSTEMOPENMPI
@@ -85,8 +90,9 @@ test -x "$ROOT/scripts/native/bin/ccx_preCICE_persistent_v2"
 test -f "$ROOT/scripts/native/lib/libseagrassReferenceRestart.so"
 export SLURM_JOB_ID="$FSI_TEST_JOB"
 export FSI_ISOLATED_CORE="$FSI_TEST_CORE"
+export FSI_ISOLATED_HELPER_DIR="$FSI_TEST_HELPERS"
 python3 "$FSI_TEST_SCRIPT" --base "$HOME/hpcc-fsi" --work "$FSI_TEST_WORK" --run
-' bash "$FSI_INITIAL_SOURCE" "$WORK" "$SLURM_JOB_ID" "$FSI_INITIAL_CORE"
+' bash "$FSI_INITIAL_SOURCE" "$WORK" "$SLURM_JOB_ID" "$FSI_INITIAL_CORE" "$FSI_INITIAL_HELPERS"
 echo "FSI_REFERENCE_ALIGNMENT_TEST_EXECUTION_COMPLETE"
 SBATCH
 bash -n "$BATCH"
@@ -106,7 +112,7 @@ fi
 job="$(sbatch --parsable --partition=cpu --nodes=1 --ntasks=1 \
   "${AVOID[@]}" --cpus-per-task=12 --mem=24G --time=01:00:00 \
   --job-name=fsi-ownfix2 \
-  --export="ALL,BASH_ENV=,ENV=,FSI_INITIAL_SOURCE=$PIN,FSI_INITIAL_HASH=$HASH,FSI_INITIAL_CORE=$COREPIN,FSI_INITIAL_CORE_HASH=$COREHASH" \
+  --export="ALL,BASH_ENV=,ENV=,FSI_INITIAL_SOURCE=$PIN,FSI_INITIAL_HASH=$HASH,FSI_INITIAL_CORE=$COREPIN,FSI_INITIAL_CORE_HASH=$COREHASH,FSI_INITIAL_HELPERS=$BASE/crossjob-fix-20261116,FSI_INITIAL_HELPER1_HASH=$H1,FSI_INITIAL_HELPER2_HASH=$H2" \
   --output="$ROOT/test-%j.out" \
   --error="$ROOT/test-%j.err" "$BATCH")"
 echo "已提交: 一次2窗口参考构形对齐+双向非零初始化的真实FSI实验；不触发后续长程计算。"
