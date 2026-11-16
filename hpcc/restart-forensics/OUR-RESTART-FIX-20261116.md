@@ -1,0 +1,59 @@
+# Own orchestration repair: cross-Slurm ALE-FSI restart (2026-11-16)
+
+**Scope:** Only our Python/Bash orchestration and case-copy policy. No OpenFOAM, preCICE, CalculiX, adapter, mesh or physics source modifications. No mutations of active job 91543.
+
+## Confirmed defects in our pipeline
+
+1. An older Slurm job attempted to evaluate `segment.py` as Bash (the logged `import: command not found` and `def sha(path)` syntax error). Use explicit `python3` in a sanitized container shell; check `BASH_ENV`/ `ENV`. The current version of `compute.sh` already uses `python3`.
+2. Our `clean-production/segment.py` discarded all old numeric fluid time folders when staging each new MPI job. This loses potentially relevant restart history. The fix stops discarding them. Retaining history is necessary conservatism, **not proof** that OpenFOAM's nonserialized moving-mesh old state is reconstructed.
+3. Our `submit.sh` automatically queued six 72h jobs from a checkpoint without real cross-session force/mesh continuity proof. The fix adds a fail-closed native-restart evidence gate (20 coupled windows required before any production chain approval).
+4. The old duplicate-job guard checked only `fsi-real-long`, but the active 72h job is named `fsi-3d-safe`. The fix checks all current FSI/precice/ccx/seagrass job names.
+5. The old verifier tolerated Mesh Courant spikes of arbitrary magnitude inside the first restarted window, provided the last value was low. The new cross-job policy rejects any Mesh Co >0.5; historical stage-0 exception remains explicitly separate.
+
+## Evidence of the still-unresolved numerical failure
+
+- Source 91006 at t=0.0325s has aligned saved displacement and mesh coordinates on all 8 ranks.
+- Direct restart with new session: mesh Co maximum 20848.68896415; fluid SIGFPE in GAMGSolver. This is a symptom, not evidence of a solver defect.
+- Nonzero displacement initialization alone: first computed fluid force 52.8753 N vs expected 0.0176638208 N.
+- Both Force and Displacement initialized: same 52.8753 N first computed load, so force initialization alone cannot fix it.
+- Uninterrupted long job 91543 crossed that time with mesh Co ~0.2374.
+- Hypothesis not yet proven: fluid/solid reference-frame mismatch in our restart initialization, compounded by unpersisted ALE history. Do not blame or patch upstream code.
+
+## One small, isolated real test while 91543 continues
+
+Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
+
+```bash
+BASE="$HOME/hpcc-fsi"
+FIX="$BASE/crossjob-fix-20261116"
+REV="REPLACE_WITH_REPAIR_COMMIT_SHA"
+URL="https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/$REV/hpcc"
+mkdir -p "$FIX"
+curl -fLsS "$URL/clean-production/segment.py" -o "$FIX/segment.py"
+curl -fLsS "$URL/clean-production/restart-initial-data-candidate.py" -o "$FIX/restart-initial-data-candidate.py"
+curl -fLsS "$URL/clean-production/restart-both-initial-fields-candidate.py" -o "$FIX/restart-both-initial-fields-candidate.py"
+curl -fLsS "$URL/restart-forensics/try-aligned-reference-and-both-initial.py" -o "$FIX/try-aligned-reference-and-both-initial.py"
+curl -fLsS "$URL/restart-forensics/submit-our-restart-2window-20261116.sh" -o "$FIX/submit-our-restart-2window-20261116.sh"
+
+python3 -m py_compile "$FIX"/*.py
+bash -n "$FIX/submit-our-restart-2window-20261116.sh"
+FSI_ISOLATED_CORE="$FIX/segment.py" python3 "$FIX/try-aligned-reference-and-both-initial.py" --self-test
+FSI_ISOLATED_CORE="$FIX/segment.py" python3 "$FIX/try-aligned-reference-and-both-initial.py" --preflight
+# Explicit user step; submits only one 2-window Slurm job into a new trial dir:
+bash "$FIX/submit-our-restart-2window-20261116.sh"
+```
+
+The test copies the original t=0.0325s checkpoint without changing it. It keeps all available source fluid time history; initializes Force and Displacement; and tests the original-reference adapter setting `restartFromDeformed=false` **in the isolated case copy only**. This is configuration of our experimental case, not modification of solver/adapter software.
+
+The two-window acceptance criteria are both solver processes exit 0, both windows converge, native mesh checks pass, Mesh Co and fluid Co <=0.5, mapped initial force within 10%, first computed force within 20% of source and no floating-point error. If the test fails, preserve and inspect logs; **never** auto-start long-chain jobs.
+
+## Offline CI
+
+`.github/workflows/test-crossjob-restart-safety.yml` validates shell/Python syntax, tightened Courant logic, and mocked Slurm submission/duplicate-protection policy. CI passing is NOT a scientific cross-job FSI qualification.
+
+## Do not do
+
+- No `scancel`, no signals to 91543
+- No rewriting `three-day-proven/long-job-91543`
+- No edits to OpenFOAM, preCICE, CalculiX or adapters
+- No promotion of a candidate just because files exist or a test starts cleanly
