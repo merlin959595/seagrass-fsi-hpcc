@@ -229,6 +229,59 @@ failure trigger. A negative A/B result should end this branch of
 configuration tweaking; investigate native restart of ALE and coupling
 state without altering the vendor code.
 
+## 2026-11-16: 91878 controlled A/B completed; Force initialization is not sufficient
+
+The user supplied the final on-HPCC 91878 Solid iteration log and watch
+forces. Isolated `91878` was `restartFromDeformed=false` with
+Displacement `initialize=yes` and **no Force initialization**. This was
+compared with `91819` (`false` + both initialized) with the same source,
+same 15 histories, physical fields, solver/adapter stack and private
+`purgeWrite 0`.
+
+`91878` solved both native two-way implicit coupling windows:
+- preCICE window1: 29 iterations, Convergence=1, accepted t=0.000125.
+- preCICE window2: 25 iterations, Convergence=1, accepted t=0.00025.
+- first accepted Fx 0.0721986309 N (reference uninterrupted 91543
+  Fx 0.0178807774 N; relative difference ~304%).
+- second accepted Fx -0.120739062 N (reference 0.0181010198 N;
+  relative difference ~767% and wrong sign).
+- `91819` force values 0.0721967879 and -0.120743419 N are nearly
+  identical to `91878`: removing initial Force data does NOT
+  restore accepted physical force continuity.
+- Initial Solid watch Force0 was **0.0 N** by design because Force was
+  not initialized; initialized displacement integral remained ~30.0624.
+  Do not label this t=0 force-zero state as a solver defect.
+- Driver `STATE.json` reported `FSI_LONG_SEGMENT_FAILED` with the
+  correct accepted-force discontinuity guard, not a proven solver
+  process crash. `FSI_SEGMENT_RESULT.json` was not emitted because
+  the guard correctly refused scientific promotion.
+- User's concurrent check showed `91543` RUNNING on `cpu-40-4`
+  at elapsed 12:46:19; `91878` had left squeue, completed separately.
+
+**Experimental conclusion:** `Force initialize=yes` is NOT the
+cause of the order-of-magnitude accepted-load mismatch. Stop trials
+of this flag. Do not change third-party source files or 91543.
+
+**Next evidence-only work**: the first restart fluid time step differed
+in Mesh Courant behavior; use new read-only
+`audit-91878-ale-point-step-readonly.py` plus the original validated
+`audit-binary-ale-coordinates.py` to compare each MPI rank:
+  actual mesh positions X(0.032375)->X(0.0325) in 91006 versus
+  X(0.0325)->X(0.032625) in 91878;
+  pointDisplacement field deltas over those time steps;
+  residual of X(t) - X0 - D(t) for each rank.
+These are neighboring time steps, NOT same-time continuous 91543
+geometry; do not claim exact solver state equality or wrongness based
+only on a motion ratio. If the new time snapshot is unavailable,
+report unavailable instead of assuming the mesh state.
+
+Relevant external documentation:
+https://precice.org/docs/adapters/openfoam/config/
+states restartFromDeformed must match structure's reference policy.
+The OF v2512 `points0MotionSolver` manages a reference point field
+which may differ from the saved current polyMesh points.
+https://api.openfoam.com/2512/classFoam_1_1points0MotionSolver.html
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
