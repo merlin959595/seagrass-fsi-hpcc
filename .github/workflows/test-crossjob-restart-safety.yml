@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Shell syntax
-        run: bash -n hpcc/clean-production/submit.sh hpcc/clean-production/compute.sh hpcc/restart-forensics/submit-our-restart-2window-20261116.sh hpcc/restart-forensics/submit-false-disp-only-ab-2window.sh
+        run: bash -n hpcc/clean-production/submit.sh hpcc/clean-production/compute.sh hpcc/restart-forensics/submit-our-restart-2window-20261116.sh hpcc/restart-forensics/submit-false-disp-only-ab-2window.sh hpcc/restart-forensics/submit-incremental-displacement-2window.sh
       - name: Python syntax
         run: python3 -m py_compile hpcc/clean-production/segment.py hpcc/clean-production/test-submit-mock.py hpcc/restart-forensics/try-aligned-reference-and-both-initial.py hpcc/restart-forensics/audit-91767-continuity-readonly.py
       - name: Restart quality policy unit tests
