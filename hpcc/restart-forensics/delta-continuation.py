@@ -264,6 +264,37 @@ def scientific_gate(base,source_work,work,start,windows):
             "accepted":results}
 
 
+def first_native_meshco(path, t):
+    """First native MeshCo in the target physical step, not settled value."""
+    if not path.is_file():
+        return None
+    active=False
+    with path.open(errors="replace") as stream:
+        for line in stream:
+            m=re.match(r"^\\s*Time\\s*=\\s*([0-9.eE+-]+)\\s*$",line)
+            if m:
+                when=float(m.group(1))
+                if active or when>t+1e-8:
+                    return None
+                active=abs(when-t)<5e-10
+            elif active and "Mesh Courant Number mean:" in line:
+                m=re.search(r"\\bmax:\\s*([0-9.eE+-]+)",line)
+                if m:
+                    value=float(m.group(1))
+                    return value if math.isfinite(value) and value>=0 else None
+    return None
+
+
+def meshco_reference_gate(base,work,start):
+    t=start+DT
+    reference=first_native_meshco(base/"three-day-proven/long-job-91543/fluid.log",t)
+    observed=first_native_meshco(work/"fluid.log",t)
+    ratio=observed/reference if reference is not None and reference>0 and observed is not None else None
+    return {"physical_time_s":t,"91543_first_meshco":reference,
+            "candidate_first_meshco":observed,"ratio":ratio,
+            "tenfold_first_native_meshco_pass":ratio is not None and 0<=ratio<=10}
+
+
 def run_trial(base,source_work,work,windows,core_path,source_job):
     if not os.environ.get("SLURM_JOB_ID"):
         raise RuntimeError("Compute node Slurm allocation required")
@@ -286,6 +317,7 @@ def run_trial(base,source_work,work,windows,core_path,source_job):
         core.stage_inputs=original
     status_path=work/"FSI_SEGMENT_RESULT.json"
     native=read_json(status_path) if status_path.is_file() else None
+    first_meshco=meshco_reference_gate(base,work,start)
     validation=None
     try:
         validation=scientific_gate(base,source_work,work,start,windows)
@@ -298,6 +330,7 @@ def run_trial(base,source_work,work,windows,core_path,source_job):
         and native.get("participant_exit_codes")=={"fluid":0,"solid":0}
         and native.get("native_terminal_mesh",{}).get("status")=="PASS"
         and validation.get("status")=="PASS"
+        and first_meshco["tenfold_first_native_meshco_pass"]
     )
     report={
         "status":"DELTA_CONTINUATION_SHORT_STAGE_PASS" if ok
@@ -306,6 +339,7 @@ def run_trial(base,source_work,work,windows,core_path,source_job):
         "start_t":start,"end_t":start+windows*DT,
         "windows":windows,"next_structural_step":step,
         "native_result":native,"scientific_vs_91543":validation,
+        "first_native_meshco_vs_91543":first_meshco,
         "exception":error,
         "NEVER_AUTO_QUEUE_NEXT_STAGE":True,
     }
@@ -349,6 +383,13 @@ def self_test():
         assert x["max_delta2_relative_error"]<1e-10
         cand.write_text(cand.read_text().replace("0.0183 0","0.1 0"))
         assert scientific_gate(root,root,root/"trial-1",.03275,2)["status"]=="FAIL"
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d)
+        native=root/"native.log"
+        native.write_text("Time = 0.032875\\n"
+                          "Mesh Courant Number mean: 1e-8 max: 1.80e-5\\n")
+        assert first_native_meshco(native,.032875)==1.8e-5
+        assert first_native_meshco(native,.032999) is None
     assert set((2,20))=={2,20}
     print("DELTA_CONTINUATION_SHORT_STAGE_OFFLINE_SELFTEST_PASS")
 
