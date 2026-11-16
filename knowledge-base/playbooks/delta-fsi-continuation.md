@@ -38,6 +38,10 @@
 
 ## D. 20 窗口新接续预检
 
+优先使用 [单命令 G0 状态检查及 G1 只读准备脚本](../../hpcc/restart-forensics/prepare-g1-after-92264-readonly.sh)。它读取 92264 正式报告；若缺失或未通过，停止且不提交；若通过，会下载固定提交的后续代码副本并调用严格预检。**不会执行 sbatch。**
+
+
+
 本仓库脚本预检是默认行为。**必须把同一 Git commit 下的脚本复制进 HPCC 的版本化独立代码目录，不要覆盖正在被其他作业使用的脚本。** 提交入口支持通过 FSI_DELTA_SCRIPT、FSI_DELTA_CORE、FSI_DELTA_RUNNER 指向同一版本的冻结副本。
 
 - hpcc/restart-forensics/delta-continuation.py
