@@ -89,6 +89,20 @@ def choose(stage,maxwin,prior_t):
         raise RuntimeError("Only two restarted FSI time windows allowed")
     return N
 
+def real_fluid_fpe(log_text):
+    """Recognize actual MPI/OpenFOAM fatal FPE, not trapFpe being enabled.
+
+    Previous verifier reported FPE=true on a clean 2-window job because
+    it checked unrelated substrings ('Floating point exception' + 'Signal').
+    """
+    signatures=(
+        r"(?im)^\\s*(?:\\[\\d+\\]\\s*)?Signal:\\s*Floating point exception\\b",
+        r"(?im)^\\s*.*exited on signal 8\\s*\\(Floating point exception\\)",
+        r"(?im)^\\s*Command exited with non-zero status 136\\s*$",
+        r"(?im)^\\s*Floating point exception(?:\\s*\\(core dumped\\))?\\s*$",
+    )
+    return any(re.search(pattern,log_text) is not None for pattern in signatures)
+
 def validation(work,orig):
     fresh=work/"runs/hpcc-implicit-002"
     original=orig/"solid/precice-Solid-watchintegral-Interface-Integral.log"
@@ -134,7 +148,7 @@ def validation(work,orig):
        "meshCo_first_values":meshco[:12],
        "meshCo_peak":max(meshco) if meshco else None,
        "solid_nonlinear_divergence":'*ERROR: solution seems to diverge' in sol,
-       "fluid_FPE":('Floating point exception' in fl and 'Signal' in fl),
+       "fluid_FPE":real_fluid_fpe(fl),
     }
 
 def self_test():
@@ -155,6 +169,15 @@ def self_test():
     except RuntimeError:pass
     else:raise AssertionError("Accepted already-initialized force/displacement XML")
     assert math.isclose(.0325+N*DT,.03275,abs_tol=1e-12)
+    assert not real_fluid_fpe(
+        "trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).\\n"
+        "Signal handling configured but no crash occurred\\n"
+        "End\\n")
+    assert real_fluid_fpe(
+        "[6] Signal: Floating point exception (8)\\n"
+        "prterun noticed that process rank 6 exited on signal 8 "
+        "(Floating point exception)\\n")
+
     # Regression for the exact 91767 staging mistake: --preflight used our
     # isolated CORE but --run accidentally loaded the frozen mainline driver.
     # This is deliberately an offline probe; no Slurm, solver or file writes.
