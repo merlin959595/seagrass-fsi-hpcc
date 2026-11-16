@@ -117,7 +117,7 @@ def describe_frames():
 
 def inspect_history():
     print("===== Native time and history directories =====")
-    for label,src in {"original_91006":ORIG,**TRIALS.items()}.items():
+    for label,src in {"original_91006":ORIG,**TRIALS}.items():
         for rank in (0,6):
             print(label,"rank",rank,summarize_times(src/f"fluid/processor{rank}"))
     print("===== Numerical schemes and moving-mesh controls =====")
