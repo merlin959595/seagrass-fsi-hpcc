@@ -626,6 +626,54 @@ fixed); an earlier diagnostic compared first unaccepted PIMPLE force
 - Existing 91543 is deliberately untouched; all edits are branch-only
   Python script/diagnostics. No Slurm jobs are created.
 
+## 2026-11-16: Same-physical-time 91006/91543/91878 validation and strict code repair
+
+User executed independent read-only Solid-watch-integral aligned comparisons:
+
+| physical t (s) | continuous 91543 Fx (N) | 91878 restarted Fx (N) | rel abs error |
+|---|---:|---:|---:|
+| .0325 | .0176619213 | zero (no Force t=0 initialize) | not comparable |
+| .032625 | .0178807774 | .0721986309 | 303.7779% |
+| .03275 | .0181010198 | -.120739062 | 767.0291% |
+
+Source 91006 at t=.0325: Fx=.0176638208 N, displacement integrals
+(30.0624021, -1.95627073e-6, -1.57777164).
+Uninterrupted 91543 t=.0325: Fx=.0176619213 N, displacement integrals
+(30.0624087, -1.95627073e-6, -1.57777234).
+91878 t=0: zero Force by intentional no initialization;
+displacements same as 91006.
+
+At physical .032625: 91543 displacement integrals
+Disp0=30.1679175 Disp2=-1.58596080 vs 91878
+Disp0=30.1707178 Disp2=-1.58610136. Disp0 aggregate difference
+.0028003; **relative to the first incremental displacement**
+(.1055088) that is ~2.65%, not negligible just because absolute
+integral is ~30. At .03275 aggregate differences .0037960, .00026543.
+This proves first accepted Fx diverges much more prominently than
+integral displacement; aggregate watch values do not guarantee
+pointwise mapping integrity.
+
+Our branch's
+`audit-91819-continuous-vs-restart-first-pressure-readonly.py`
+has now been extended to include `restart91878` at its ACTUAL
+`force-ab-tests/trial-91878` path (read-only) to compare native
+PIMPLE first records, first and last provisional pressure/viscous
+force trace, same-time meshCo and accepted integrals. No new Slurm job.
+
+Additionally fixed **a second bug** in
+`segment.py:validate_accepted_force_continuity()`:
+even after adding correct same-physical-time 91543 force reference, it
+was still rejecting genuine rapidly varying matching forces if they
+differed >20% from the *previous-time* Fx before comparing the
+correct reference. The old-time difference is now diagnostic only
+whenever the same-time continuous reference exists. A synthetic
+fast-evolving physically identical source/reference case is tested
+in CI. No implication that the numerical restart mechanism itself
+has been fixed; accepted Fy/Fz and pointwise displacement should
+also be checked before actual production.
+
+No vendor file edits and no Slurm submissions. Preserve 91543.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
