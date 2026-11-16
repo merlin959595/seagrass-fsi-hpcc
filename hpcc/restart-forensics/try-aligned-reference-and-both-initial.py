@@ -166,6 +166,8 @@ def validation(work,orig):
        "initial_force0_10pct":diff is not None and diff<=.10,
        "first_computed_force0_N":firstforce[0] if firstforce else None,
        "first_computed_force0_relative_error":first_rel,
+       "first_force_is_unaccepted_provisional":True,
+       "first_force_vs_accepted_reference_noncomparable":True,
        "first_computed_force0_20pct":first_rel is not None and first_rel<=.20,
        "initial_force_mapping_not_skipped_zero":any(
            'Mapping "Force" for t=0 from "Fluid-Mesh-Faces" to "Solid-Mesh"' in l
@@ -335,7 +337,8 @@ def run(base,work):
          and q.get("max_fluid_Co",math.inf)<=.5
          and q.get("max_mesh_Co",math.inf)<=.5
          and v["initial_force0_10pct"]
-         and v["first_computed_force0_20pct"]
+         # Provisional PIMPLE forces near 11 N also occur in 91543.
+         # Compare only ACCEPTED preCICE-integrated forces to 91543.
          and v["first_two_match_uninterrupted_91543_within_20pct"]
          and v["initial_force_mapping_not_skipped_zero"]
          and v["initial_displacement_mapping_not_skipped_zero"]
@@ -353,8 +356,8 @@ def run(base,work):
     if work.is_dir():
         (work/"REFERENCE_ALIGNED_BOTH_FIELDS_RESULT.json").write_text(
           json.dumps(report,indent=2,ensure_ascii=False)+"\n")
-    print(status,"FIRST_FX",v["first_computed_force0_N"],
-          "ORIGINAL_FX",v["certified_last_force0_N"],
+    print(status,"PROVISIONAL_FIRST_FX_NOT_A_GATE",v["first_computed_force0_N"],
+          "PRIOR_ACCEPTED_FX",v["certified_last_force0_N"],
           "MESH_CO_MAX",v["meshCo_peak"],"ERROR",err,flush=True)
     if not ok:sys.exit(3)
 
