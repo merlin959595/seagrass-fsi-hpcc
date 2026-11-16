@@ -271,14 +271,14 @@ def first_native_meshco(path, t):
     active=False
     with path.open(errors="replace") as stream:
         for line in stream:
-            m=re.match(r"^\\s*Time\\s*=\\s*([0-9.eE+-]+)\\s*$",line)
+            m=re.match(r"^\s*Time\s*=\s*([0-9.eE+-]+)\s*$",line)
             if m:
                 when=float(m.group(1))
                 if active or when>t+1e-8:
                     return None
                 active=abs(when-t)<5e-10
             elif active and "Mesh Courant Number mean:" in line:
-                m=re.search(r"\\bmax:\\s*([0-9.eE+-]+)",line)
+                m=re.search(r"\bmax:\s*([0-9.eE+-]+)",line)
                 if m:
                     value=float(m.group(1))
                     return value if math.isfinite(value) and value>=0 else None
@@ -386,8 +386,8 @@ def self_test():
     with tempfile.TemporaryDirectory() as d:
         root=Path(d)
         native=root/"native.log"
-        native.write_text("Time = 0.032875\\n"
-                          "Mesh Courant Number mean: 1e-8 max: 1.80e-5\\n")
+        native.write_text("Time = 0.032875\n"
+                          "Mesh Courant Number mean: 1e-8 max: 1.80e-5\n")
         assert first_native_meshco(native,.032875)==1.8e-5
         assert first_native_meshco(native,.032999) is None
     assert set((2,20))=={2,20}
