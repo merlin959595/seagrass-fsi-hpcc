@@ -197,8 +197,69 @@ def audit(base):
       "no_solver_or_Slurm_invoked":True,
     }
 
+def initial_first_step_divergence(data):
+    """Compare actual native first fluid solution, not final accepted watch data.
+
+    The first force/pressure samples are provisional PIMPLE iterations; their
+    meaning is diagnostic, not accepted physical force.
+    """
+    refs=data["cases"]
+    t="0.032625"
+    control=refs["continuous91543"]["trace_targets"][t]
+    restarted=refs["restart91878"]["trace_targets"][t]
+    other=refs["restart91819"]["trace_targets"][t]
+
+    def first_pressure_residual(entry,variable):
+        pat=re.compile(r"\bSolving for\s+"+re.escape(variable)+
+                       r",\s+Initial residual\s*=\s*([0-9.eE+-]+)")
+        for obj in entry["samples"]:
+            m=pat.search(obj.get("text",""))
+            if m:return float(m.group(1))
+        return None
+
+    def first_force(entry):
+        for label,force in entry["first_forces"]:
+            if label=="Total":return float(force)
+        return None
+
+    def first_meshco(entry):
+        values=entry["mesh_Co_first3"]
+        return values[0] if values else None
+
+    a,b,c=first_meshco(control),first_meshco(restarted),first_meshco(other)
+    f_cont,f_re=first_force(control),first_force(restarted)
+    first_pressures={}
+    for variable in ("pcorr","p"):
+        x=first_pressure_residual(control,variable)
+        y=first_pressure_residual(restarted,variable)
+        first_pressures[variable]={"continuous":x,"restart":y,
+                                   "difference":y-x if x is not None and y is not None else None}
+
+    settings_control=refs["continuous91543"]["settings"]["motion_ref"]
+    settings_restart=refs["restart91878"]["settings"]["motion_ref"]
+    return {
+      "physical_time_s":.032625,
+      "continuous_meshCo_first":a,
+      "restart_meshCo_first":b,
+      "meshCo_restart_over_continuous":b/a if a is not None and b is not None and a!=0 else None,
+      "first_provisional_fluid_Fx_continuous_N":f_cont,
+      "first_provisional_fluid_Fx_restart_N":f_re,
+      "first_provisional_fluid_Fx_difference_N":
+          f_re-f_cont if f_re is not None and f_cont is not None else None,
+      "first_pressure_initial_residuals":first_pressures,
+      "initial_meshCo_equal_91819_and_91878":
+          b is not None and c is not None and abs(b-c)<1e-12,
+      "source_vs_restart_registration_policy_different":
+          settings_control!=settings_restart,
+      "missing_process_volatile_ale_history_verified":False,
+      "interpretation":"First native fluid step differs. Mesh oldPoints, moving flux and boundary mapping are leading test targets; neither is proven causal by logs.",
+      "comparison_stage":"first provisional PIMPLE solve, NOT accepted force"
+    }
+
 def concise_summary(data):
     lines=["READ_ONLY_DIFFERENTIAL_PRESSURE_SOLVE_SUMMARY"]
+    lines.append("EARLIEST_FLUID_DIVERGENCE="+json.dumps(
+        initial_first_step_divergence(data),ensure_ascii=False))
     for case,entry in data["cases"].items():
         lines.append(f"=== {case} ===")
         lines.append("REFERENCE_SETTINGS="+json.dumps(entry["settings"],ensure_ascii=False))
@@ -260,6 +321,25 @@ def self_test():
         assert "Solving for p" in str(a["samples"])
     assert REL["restart91878"].endswith("/force-ab-tests/trial-91878")
     assert .0325 + .000125 == .032625
+    demo={"cases":{}}
+    for label,co,fx,pcorr,p in (
+        ("continuous91543",1.8095493183964e-5,11.154076549809,.31611287214121,.94098821879041),
+        ("restart91878",.12932920678317,11.515278323918,.20040800784761,.9454347188419),
+        ("restart91819",.12932920678317,11.515278323918,.20040800784761,.9454347188419)):
+        demo["cases"][label]={
+           "settings":{"motion_ref":["restartFromDeformed true;" if label=="continuous91543" else "restartFromDeformed false;"]},
+           "trace_targets":{"0.032625":{
+              "mesh_Co_first3":[co],"first_forces":[["Total",fx]],
+              "samples":[{"text":f"GAMG: Solving for pcorr, Initial residual = {pcorr}, Final residual = 0.001, No Iterations 8"},
+                         {"text":f"GAMG: Solving for p, Initial residual = {p}, Final residual = 0.001, No Iterations 8"}]
+           }}
+        }
+    diag=initial_first_step_divergence(demo)
+    assert 7100 < diag["meshCo_restart_over_continuous"] < 7200
+    assert diag["initial_meshCo_equal_91819_and_91878"] is True
+    assert diag["source_vs_restart_registration_policy_different"] is True
+    assert diag["first_pressure_initial_residuals"]["pcorr"]["restart"]==.20040800784761
+    assert diag["missing_process_volatile_ale_history_verified"] is False
     print("READ_ONLY_PRESSURE_SOLVER_TRACE_SELFTEST_PASS")
 
 def main():
