@@ -13,10 +13,22 @@ jobs:
       - name: Shell syntax
         run: bash -n hpcc/clean-production/submit.sh hpcc/clean-production/compute.sh hpcc/restart-forensics/submit-our-restart-2window-20261116.sh
       - name: Python syntax
-        run: python3 -m py_compile hpcc/clean-production/segment.py hpcc/clean-production/test-submit-mock.py hpcc/restart-forensics/try-aligned-reference-and-both-initial.py
+        run: python3 -m py_compile hpcc/clean-production/segment.py hpcc/clean-production/test-submit-mock.py hpcc/restart-forensics/try-aligned-reference-and-both-initial.py hpcc/restart-forensics/audit-91767-continuity-readonly.py
       - name: Restart quality policy unit tests
         run: python3 hpcc/clean-production/segment.py --self-test
       - name: Two-window candidate inputs self-test
         run: python3 hpcc/restart-forensics/try-aligned-reference-and-both-initial.py --self-test
+      - name: Differential force audit parser self-test
+        run: python3 hpcc/restart-forensics/audit-91767-continuity-readonly.py --self-test
+      - name: Guard against leaking Python argv to OpenFOAM bashrc
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('hpcc/restart-forensics/submit-our-restart-2window-20261116.sh').read_text()
+          assert s.index('FSI_TEST_SCRIPT="$1"') < s.index('set --') < s.index('source /usr/lib/openfoam/openfoam2512/etc/bashrc')
+          assert 'python3 "$FSI_TEST_SCRIPT" --base' in s
+          assert 'export FSI_ISOLATED_CORE="$FSI_TEST_CORE"' in s
+          print('BASHRC_POSITIONAL_ARGUMENT_ISOLATION_PASS')
+          PY
       - name: Mocked Slurm submission regression
         run: python3 hpcc/clean-production/test-submit-mock.py
