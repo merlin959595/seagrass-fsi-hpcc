@@ -127,6 +127,30 @@ def audit(base):
     ]
     return output
 
+def summarize(packet):
+    lines=["HISTORICAL_INITIALIZATION_CONTROLS_READONLY",
+           "91006 source last accepted Fx="+str(packet["source_91006_last_Fx_N"])]
+    for label,case in packet["cases"].items():
+        if not case.get("available"):
+            lines.append(label+" NOT_FOUND; no inference");continue
+        setting=case["settings"]
+        frame=setting.get("restartFromDeformed")
+        exchange=setting.get("exchange",{})
+        flags={k:v["initialize_yes"] for k,v in exchange.items()}
+        lines.append(f"{label} frame={frame} init={flags} "
+                     f"first_meshCo={case['initial_mesh_Co_max']} "
+                     f"force_evals={case['total_force_evaluations']}")
+        for p in case["accepted_comparisons"]:
+            a=p["accepted_trial"];b=p["accepted_91543"]
+            lines.append(f"  WINDOW_{p['window']} "
+                         f"trial_Fx={a[1] if a else None} "
+                         f"ref_91543_Fx={b[1] if b else None} "
+                         f"Fx_rel_err={p['force0_relative_error_to_continuous']} "
+                         f"Disp0_integral_rel_err={p['displacement0_relative_error_to_continuous']}")
+        lines.append("  existing_status="+json.dumps(case["existing_result_status"],ensure_ascii=False))
+    lines.append("READ_ONLY; NO Slurm/SOLVER/JOB CHANGES")
+    return "\n".join(lines)
+
 def selftest():
     assert nearest([[0,1],[.000125,2]],.000125)==[.000125,2]
     assert nearest([],0) is None
@@ -139,10 +163,11 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--base",type=Path,default=Path.home()/"hpcc-fsi")
     p.add_argument("--self-test",action="store_true")
+    p.add_argument("--summary",action="store_true")
     args=p.parse_args()
     if args.self_test:return selftest()
     out=audit(args.base.expanduser().resolve(strict=True))
-    print(json.dumps(out,ensure_ascii=False,indent=2))
+    print(summarize(out) if args.summary else json.dumps(out,ensure_ascii=False,indent=2))
     print("NO_SOLVER_NO_SLURM_NO_SOURCE_OR_LIVE_MUTATION")
 
 if __name__=="__main__": main()
