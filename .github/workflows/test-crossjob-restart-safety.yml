@@ -28,6 +28,9 @@ jobs:
           assert s.index('FSI_TEST_SCRIPT="$1"') < s.index('set --') < s.index('source /usr/lib/openfoam/openfoam2512/etc/bashrc')
           assert 'python3 "$FSI_TEST_SCRIPT" --base' in s
           assert 'export FSI_ISOLATED_CORE="$FSI_TEST_CORE"' in s
+          assert 'export FSI_ISOLATED_HELPER_DIR="$FSI_TEST_HELPERS"' in s
+          assert 'FSI_INITIAL_HELPER1_HASH=$H1' in s
+          assert 'FSI_INITIAL_HELPER2_HASH=$H2' in s
           print('BASHRC_POSITIONAL_ARGUMENT_ISOLATION_PASS')
           PY
       - name: Mocked Slurm submission regression
