@@ -556,6 +556,76 @@ logs (user-supplied, no HPC direct access):
 Do not perform additional Force-initialization trials.
 No new Slurm jobs. 91543 and original source 91006 must stay untouched.
 
+## 2026-11-16: Owner-code deep audit and verified safety repairs (NO claim of numerical restart success)
+
+**Admission:** The investigation incorrectly prioritized grid diagnostics over
+our own cross-process orchestration. The continuous 91543 run is valid evidence
+that the unchanged mesh/physical case can advance across t=0.0325.
+
+**Source-code verified defects in our own restart plan**:
+1. `hpcc/clean-production/segment.py`, `stage_inputs()`:
+   `shutil.copytree(source,dst)` copies current disk OpenFOAM and CalculiX
+   snapshots, copies native `.rout -> .rin` and HHT `kinematic_state.bin
+   -> .input.bin`, deletes previous preCICE log files, and `run()` always
+   starts new `pimpleFoam` and `ccx_preCICE_persistent_v2` processes.
+   The new preCICE session is not a persistent continuation of the old
+   session's mesh registration and IQN-ILS acceleration history. The
+   code does not serialize or restore those states. This is an
+   **incomplete cross-job restart protocol**, regardless of correct
+   copies of 0.0325 file fields. Not proof those specific omitted states
+   alone caused Fx 0.072 / -0.121 N.
+2. `hpcc/restart-forensics/try-aligned-reference-and-both-initial.py`
+   and `try-reference-false-displacement-only.py` explicitly patch
+   `restartFromDeformed true -> false`, and change XML initial
+   exchange policy at the same restart boundary. The original
+   91006 / uninterrupted 91543 start their session from 0.0025 with
+   `restartFromDeformed=true` and keep their original registered
+   coupling mesh. **These are controlled experiments, NOT exact
+   reproduction of the upstream coupling session.**
+   Their self-tests were previously asserting this intervention but did
+   not disclose that they cannot prove source-equivalent mapping.
+   Both scripts now emit
+   `source_equivalent_precice_session=False`,
+   `reference_registration_policy_changed_from_source=True`,
+   `precice_IQN_history_restored=False`,
+   `diagnostic_only_not_a_proven_physical_restart=True`.
+3. `segment.py:validate_accepted_force_continuity()` previously
+   compared TWO accepted post-restart forces against a **single old**
+   t=.0325 force. It did not compare them with continuous 91543 at
+   the identical physical times. Fixed on this branch. Stage 1 now
+   requires the read-only 91543 reference watch integral, converts
+   t physical=.0325+n*.000125 to its 91543 relative clock
+   t=.03+n*.000125 (91543 starts physical=.0025), checks both
+   accepted values against the matched reference, and fails closed if
+   missing or >20% divergent. A unit test reproduces the former
+   false-acceptance case. Old `relative_error` output retained.
+   This fixes **scientific acceptance**, not the wrong numerical
+   forces themselves.
+
+**Other previously verified own-driver bugs**: `91767` actual `--run`
+loaded a frozen `segment.py` despite isolated preflight (pinning
+fixed); an earlier diagnostic compared first unaccepted PIMPLE force
+(~11 N in both continuous and restarted runs) with the old accepted
+~0.018 N (invalid comparison; fixed).
+
+**Boundary of certainty**:
+- The exact mechanism causing post-restart Fx=.0721986309 N then
+  -.120739062 N is **NOT YET PROVEN**. The tested restart protocol
+  reproduces two converged but scientifically false windows.
+- 91006 and restart 91878 fields are bit-identical at .0325, saved
+  ALE X=Xconstant+D holds across all 8 ranks, initial CCX displacement
+  integral matches, and custom `referenceRestart.c` restores
+  Solid-Mesh's original registered coordinates. No basis to blame
+  blockMesh generation or static numerical settings.
+- The next actual **engineering** solution requires a source-faithful
+  restarted coupling state: preserve original registered vertex frame
+  across new process sessions and establish a reproducible first
+  native ALE/pressure/structural old-time state. Need a clear
+  feasibility design, NOT blind settings sweeps. Do not claim this
+  has been implemented or validated.
+- Existing 91543 is deliberately untouched; all edits are branch-only
+  Python script/diagnostics. No Slurm jobs are created.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
