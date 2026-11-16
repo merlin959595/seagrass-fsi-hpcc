@@ -282,6 +282,40 @@ The OF v2512 `points0MotionSolver` manages a reference point field
 which may differ from the saved current polyMesh points.
 https://api.openfoam.com/2512/classFoam_1_1points0MotionSolver.html
 
+## 2026-11-16: 91878 ALE checkpoint cadence mismatch (after numeric-folder bug fixed)
+
+The user executed revision `c612df5d0effc1dc229aad3224a02e5c05710abc`,
+where `time_dir()` now correctly resolves `0.0325` and similar directory names.
+
+**Fresh results:**
+- All 8 MPI ranks show `91006` and `91878` `polyMesh/points` and
+  `pointDisplacement` at t=0.0325 **byte-identical**.
+- `91006` time 0.032375 directories do NOT contain the requested
+  `polyMesh/points` or `pointDisplacement` files.
+- `91878` time 0.032625 directories do NOT contain those files.
+- Consequently the earlier audit returned `UNAVAILABLE` and
+  `GEOMETRY_REFERENCE_RESIDUAL_M=None` at every rank. This is
+  **not evidence of a wrong point geometry**, nor proof that OpenFOAM
+  dropped native ALE states. It means the diagnostic assumed a snapshot
+  that was never written in those particular directories.
+- Under the two-window trial, `writeControl timeStep` with
+  `writeInterval 2` is consistent with an end snapshot at 0.03275,
+  but the end snapshot must be actually verified. OpenFOAM may inherit
+  mesh files from earlier mesh instances; the mere presence of a
+  numeric time directory does not guarantee a `polyMesh/points` file.
+
+**Corrected next evidence-only investigation**:
+`audit-91878-available-ale-snapshots-readonly.py` enumerates actual
+field availability per rank and time, verifies 0.0325 hash identity,
+checks candidate `X(t0) - Xref - pointDisplacement(t0)` residuals
+for available reference files, and compares actual 91878
+`0.0325 -> 0.03275` two-window mesh/field deltas ONLY IF both
+endpoint fields exist. This test does not claim that
+`constant/polyMesh/points` is necessarily the native `points0`,
+and does not pretend to reconstruct the missing 0.032625 snapshot.
+It runs read-only on the login node. No new FSI job or editing active
+91543 is justified.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
