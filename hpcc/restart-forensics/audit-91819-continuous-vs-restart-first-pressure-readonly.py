@@ -29,6 +29,7 @@ def compact_trace(path, label):
         return {"file_exists":False,"path":str(path)}
     kept={f"{t:.6f}":{"matching_time_blocks":0,"samples":[],
                       "force_evaluations":0,
+                      "mesh_Co_first3":[],"mesh_Co_last3":[],
                       "first_forces":[],"last_forces":[]} for t in TGT}
     current=None
     reading_force=False
@@ -62,6 +63,15 @@ def compact_trace(path, label):
             continue
         if current is None:continue
         data=kept[current]
+        if "Mesh Courant Number" in line:
+            co=re.search(r"\bmax:\s*([+\-\d.eE]+)",line)
+            if co:
+                try: v=float(co.group(1))
+                except ValueError: v=None
+                if v is not None and math.isfinite(v):
+                    if len(data["mesh_Co_first3"])<3:data["mesh_Co_first3"].append(v)
+                    data["mesh_Co_last3"].append(v)
+                    if len(data["mesh_Co_last3"])>3:data["mesh_Co_last3"].pop(0)
         # Function object prints TWO identically named triple groups:
         # "Sum of forces" AND "Sum of moments". The previous parser included
         # moment components in "last forces" and falsely reported ~1e-10 N.
@@ -192,7 +202,9 @@ def concise_summary(data):
             lines.append(f"TIME={t} FLUID_TIME_RECORDS={block['matching_time_blocks']} "
                          f"FORCE_EVALUATIONS={block['force_evaluations']} "
                          f"FIRST_PROVISIONAL_FORCE_COMPONENTS={block['first_forces'][:3]} "
-                         f"LAST_FLUID_FORCE_COMPONENTS={block['last_forces'][-3:]}")
+                         f"LAST_FLUID_FORCE_COMPONENTS={block['last_forces'][-3:]} "
+                         f"MESH_CO_FIRST3={block['mesh_Co_first3']} "
+                         f"MESH_CO_LAST3={block['mesh_Co_last3']}")
             # The last fluid force is still not automatically a validated
             # accepted preCICE value: compare the accepted Solid watch log.
 
@@ -235,6 +247,7 @@ def self_test():
         a=x["targets"]["0.032625"]
         assert a["matching_time_blocks"]==1
         assert a["force_evaluations"]==2
+        assert a["mesh_Co_first3"]==[]
         assert a["first_forces"]==[["Total",11.515],
                                    ["Pressure",11.514],["Viscous",0.001]]
         assert a["last_forces"][-3:]==[["Total",0.018],
