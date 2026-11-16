@@ -134,6 +134,28 @@ def report(base):
       "scope":"Four existing cases; source and live jobs read-only; no Slurm or solver calls"
     }
 
+def concise_summary(result):
+    lines=["READ_ONLY_ACCEPTED_DISPLACEMENT_PRESSURE_SUMMARY"]
+    for window in result["accepted_window_comparisons"]:
+        reference=window["continuous_reference"]
+        lines.append(f"WINDOW={window['window']} physical_t={window['physical_time_s']:.6f} "
+                     f"91543_accepted={ {key:reference[key] for key in ('Force0','Force2','Displacement0','Displacement2')} if reference else 'NOT_FOUND' }")
+        for name in ("restart_91767","restart_91819"):
+            value=window[name]["accepted"]
+            comparison=window[name]["component_differences"]
+            lines.append(f"  {name}={ {key:value[key] for key in ('Force0','Force2','Displacement0','Displacement2')} if value else 'NOT_FOUND' }")
+            lines.append("  relative_to_91543="+str({
+                key:comparison[key] for key in ("Force0","Force2","Displacement0","Displacement2")
+            }))
+    for name,detail in result["initial_field_comparisons_and_pressure"].items():
+        lines.append(f"INITIAL_FIELDS {name} "+
+           str({key:detail["source_vs_initial_fields"][key]
+                for key in ("p","phi","meshPhi","V0","Uf")}))
+        lines.append(f"INITIAL_FORCE_PRESSURE {name} "+
+                     str(detail["first_computed_blade_force_components"]))
+    lines.append("NO_MODIFICATION_NO_SBATCH_NO_SOLVER")
+    return "\n".join(lines)
+
 def self_test():
     with tempfile.TemporaryDirectory() as d:
         p=Path(d)/"w.log"
@@ -153,11 +175,13 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--base",type=Path,default=Path.home()/"hpcc-fsi")
     p.add_argument("--self-test",action="store_true")
+    p.add_argument("--summary",action="store_true",help="Compact force and displacement comparison")
     a=p.parse_args()
     if a.self_test:return self_test()
     result=report(a.base.expanduser().resolve(strict=True))
     if any(row["continuous_reference"] is None for row in result["accepted_window_comparisons"]):
         print("CAUTION: CONTINUOUS_91543_REFERENCE_MISSING; do not infer match.")
-    print(json.dumps(result,indent=2,ensure_ascii=False))
+    print(concise_summary(result) if a.summary else
+          json.dumps(result,indent=2,ensure_ascii=False))
     print("NO_SOURCE_NO_LIVE_JOB_NO_SOLVER_MODIFICATIONS")
 if __name__=="__main__":main()
