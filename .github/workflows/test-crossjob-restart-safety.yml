@@ -31,6 +31,14 @@ jobs:
           python3 -m py_compile hpcc/restart-forensics/delta-continuation.py
           python3 hpcc/restart-forensics/delta-continuation.py --self-test
           bash -n hpcc/restart-forensics/submit-delta-continuation-short.sh hpcc/restart-forensics/run-delta-continuation-container.sh
+          python3 - <<'PY_PIN'
+          from pathlib import Path
+          p=Path("hpcc/restart-forensics/submit-delta-continuation-short.sh").read_text()
+          assert 'result="$OUTROOT/$name-$(echo "$hash"|cut -c1-16).${src##*.}"' in p
+          assert '"$FSI_DELTA_SOURCE_WORK"' not in p  # source read through parent path
+          assert 'if [[ "$ACTION" = "--preflight" ]]' in p
+          assert "NO_AUTO_CHAIN_NO_LONG_PRODUCTION" in p
+          PY_PIN
       - name: Read-only available ALE snapshot audit self-test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
