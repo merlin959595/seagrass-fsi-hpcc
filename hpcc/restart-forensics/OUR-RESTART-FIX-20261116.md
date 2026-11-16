@@ -456,6 +456,52 @@ silently change third-party adapter/solver code. Request read-only
 and `grep` of `SEAGRASS_PERSISTENT_STATE_RESTORED` in local custom
 sources. Then decide whether startup order is causal.
 
+## 2026-11-16: User read full referenceRestart.c; previous frame-mismatch suspicion disproven for 91878
+
+The user supplied **the full** native
+`seagrass-implicit-20261111/scripts/native/referenceRestart.c` and
+`91878/solid.log` lines 25–85.
+
+Native C interposes `precicec_setMeshVertices()`. In
+`SG_REFERENCE_MODE=restore`, it reads
+`$SG_REFERENCE_DIR/<mesh>.coords`, checks count and dimensions, reports
+max absolute coordinate shift, and calls
+`real(mesh,count,reference,ids)`. It explicitly **does not modify**
+solver fields, displacement payload or force payload. Therefore the
+restored structure `Solid-Mesh` is registered in the **original
+reference geometry**, irrespective of standard adapter's
+`getNodeCoordinates()=co+vold`. Fluid
+`restartFromDeformed=false` also registers original reference
+geometry; the specific claimed fluid-original vs solid-deformed
+frame mismatch is **not present in 91878 under this hook** (exact
+surface geometric matching still requires coordinates audit).
+`max_registration_shift=0.0057796529218752512` m = ~5.78 mm.
+
+Actual CCX log sequence:
+- `SEAGRASS_REFERENCE_MESH_RESTORED`
+- `Adapter writing coupling data`
+- `Writing DISPLACEMENTS coupling data`
+- `precicec_initialize()`
+- `Initializing coupling data` / `Adapter reading coupling data`
+- `SEAGRASS_PERSISTENT_STATE_RESTORED nodes=51855 mt=4
+  time=0.032500000000000001`
+- `Reading FORCES coupling data`
+- then implicit checkpoint and first native increment at 0.032625.
+
+This calls **initial nonzero displacement write before later
+persistent-state restore**. Whether this creates inconsistent
+initial data depends on which state `SeagrassPersistent.h`
+actually restores and whether native CalculiX `seagrass.rin` already
+holds all initial `vold` state. Do **not** infer a bug from logging
+order alone. Need read `SeagrassPersistent.h` (its L20 accepts
+`SG_PERSISTENT_STATE_IN`), caller context in native custom
+ccx source and source-91006 last watch `Displacement0` versus
+91878 initial watch `Displacement0`. Those files are on HPC,
+not in this GitHub branch.
+
+Confirmed long 91543 still RUNNING on `cpu-40-4`, elapsed
+14:50:20. No new FSI job authorized.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
