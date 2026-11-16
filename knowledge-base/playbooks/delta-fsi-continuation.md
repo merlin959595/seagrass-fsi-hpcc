@@ -38,13 +38,19 @@
 
 ## D. 20 窗口新接续预检
 
-本仓库脚本预检是默认行为；需先将已验证版本的三个文件复制进 HPCC 的独立代码目录：
+本仓库脚本预检是默认行为。**必须把同一 Git commit 下的脚本复制进 HPCC 的版本化独立代码目录，不要覆盖正在被其他作业使用的脚本。** 提交入口支持通过 FSI_DELTA_SCRIPT、FSI_DELTA_CORE、FSI_DELTA_RUNNER 指向同一版本的冻结副本。
 
 - hpcc/restart-forensics/delta-continuation.py
 - hpcc/restart-forensics/run-delta-continuation-container.sh
 - hpcc/restart-forensics/submit-delta-continuation-short.sh
 
-以及已在该目录保存的经过代码回归测试的 segment.py。
+以及同一 commit 里的 hpcc/clean-production/segment.py。先在当前 Shell 设置路径，例如：
+
+    export FSI_DELTA_SCRIPT="$HOME/hpcc-fsi/crossjob-fix-20261116/delta-next-REV/delta-continuation.py"
+    export FSI_DELTA_CORE="$HOME/hpcc-fsi/crossjob-fix-20261116/delta-next-REV/segment.py"
+    export FSI_DELTA_RUNNER="$HOME/hpcc-fsi/crossjob-fix-20261116/delta-next-REV/run-delta-continuation-container.sh"
+
+以下 D/E/F 中的同一份 submit-delta-continuation-short.sh 也应使用这个冻结版本；不要把已变动的 GitHub 工作分支脚本与旧的 container runner 混用。
 
 随后执行：
 
