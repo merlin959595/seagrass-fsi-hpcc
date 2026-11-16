@@ -22,6 +22,10 @@ jobs:
         run: |
           python3 -m py_compile hpcc/restart-forensics/try-reference-false-displacement-only.py
           python3 hpcc/restart-forensics/try-reference-false-displacement-only.py --self-test
+      - name: Incremental-displacement cross-job startup (offline self-test)
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/try-incremental-displacement-restart.py
+          python3 hpcc/restart-forensics/try-incremental-displacement-restart.py --self-test
       - name: Read-only available ALE snapshot audit self-test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
