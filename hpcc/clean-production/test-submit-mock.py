@@ -78,6 +78,29 @@ def test():
         env["USER"]="mockuser"
         env["PATH"]=str(fakebin)+os.pathsep+env["PATH"]
         env["FAKE_SBATCH_LOG"]=str(calls)
+        # Unit test a deliberate safety stop BEFORE creating any jobs.
+        blocked=subprocess.run(["bash",str(src/"submit.sh"),"--count","3"],
+            env=env,capture_output=True,text=True,timeout=120)
+        assert blocked.returncode==61, blocked.stdout+"\n"+blocked.stderr
+        assert "CROSS_JOB_CHAIN_BLOCKED" in blocked.stderr
+        assert not calls.exists()
+        assert not (base/"seagrass-fsi-mainline").exists()
+        # A synthetic certificate checks the GUARD'S MECHANICS only;
+        # it does not constitute real FSI validation.
+        mock_proof={
+            "status":"FSI_CROSS_JOB_NATIVE_RESTART_PASS",
+            "source_job":91006,"restart_from_time_s":0.0325,
+            "verified_coupled_windows":20,
+            "participant_exit_codes":{"fluid":0,"solid":0},
+            "native_terminal_mesh_status":"PASS",
+            "max_mesh_Co":.24,"max_fluid_Co":.26,
+            "initial_force_rel_error":.01,
+            "first_computed_force_rel_error":.02,
+            "solid_rout_sha256":sha(case/"solid/seagrass.rout"),
+            "solid_kinematic_sha256":sha(case/"solid/kinematic_state.bin"),
+            "fluid_proc0_points_sha256":sha(case/"fluid/processor0/0.0325/polyMesh/points"),
+        }
+        (base/"FSI_CROSS_JOB_NATIVE_RESTART_PROOF.json").write_text(json.dumps(mock_proof))
         result=subprocess.run(["bash",str(src/"submit.sh"),"--count","3"],
             env=env,capture_output=True,text=True,timeout=120)
         assert result.returncode==0, result.stdout+"\n"+result.stderr
@@ -105,7 +128,7 @@ def test():
         assert "已排入队列：计算段 C" in result.stdout
         assert not (base/"seagrass-fsi-mainline/segment-A").exists()
         assert (case/"solid/seagrass.rout").read_bytes()==b"r"*1600
-        print("FSI_CLEAN_OFFLINE_SUBMISSION_CHAIN_PASS 3 stages, afterok, immutable source")
+        print("FSI_CLEAN_OFFLINE_SUBMISSION_CHAIN_PASS absent-proof blocked; mock-proof 3 stages, afterok, immutable source")
 
 if __name__=="__main__":
     test()
