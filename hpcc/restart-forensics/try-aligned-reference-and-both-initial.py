@@ -165,7 +165,7 @@ def run(base,work):
     if "long-job-" in str(work):
         raise RuntimeError("Never use ongoing 91543 work folder")
     source=provenance(base)
-    core=imported(base/"seagrass-fsi-mainline/bin/segment.py","frozen_core")
+    core=imported(CORE,"isolated_own_restart_driver")
     original_choose=core.choose_windows
     original_stage=core.stage_inputs
     def stage_inputs(b,stage,parent,dest,max_windows,chain_root=None):
