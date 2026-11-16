@@ -26,6 +26,11 @@ jobs:
         run: |
           python3 -m py_compile hpcc/restart-forensics/try-incremental-displacement-restart.py
           python3 hpcc/restart-forensics/try-incremental-displacement-restart.py --self-test
+      - name: Reusable delta continuation offline test and runner shell checks
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/delta-continuation.py
+          python3 hpcc/restart-forensics/delta-continuation.py --self-test
+          bash -n hpcc/restart-forensics/submit-delta-continuation-short.sh hpcc/restart-forensics/run-delta-continuation-container.sh
       - name: Read-only available ALE snapshot audit self-test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
