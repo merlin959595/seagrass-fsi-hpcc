@@ -4,7 +4,7 @@
 set -euo pipefail
 BASE="$HOME/hpcc-fsi"
 WORK="$BASE/crossjob-fix-20261116/delta-2window/trial-92264"
-REV="5df0ee94473974d7ac17384511be9f1261dac4c7"
+REV="a0681df79291f7f1e71b1e408891386b8c644ce0"
 CODE="$BASE/crossjob-fix-20261116/delta-next-$REV"
 RAW="https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/$REV"
 echo "======= 92264 scheduler ======="
