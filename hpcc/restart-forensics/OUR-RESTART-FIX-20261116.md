@@ -38,6 +38,46 @@ physical continuity is achieved. A new independent test, if warranted after
 reading 91767 results, must use revision >=
 `b8ab0eb986175b8ec126b4e65449edbbc6880f21` pinned throughout.
 
+## Real trial 91767: run success != restart validity
+
+User-observed trial 91767 at t=0.0325 -> 0.03275:
+- 2/2 preCICE windows accepted, 50 total coupling iterations, both participants exit 0.
+- Max fluid Courant 0.28998, max Mesh Courant 0.32928, native mesh PASS.
+- Initial mapped Force Fx 0.0176638208 N exactly matches the prior state.
+- The first computed OpenFOAM blade force is 11.5152783 N
+  (relative error 650.91322 = about 652 times the original magnitude).
+- Thus the outer scientific acceptance must FAIL even when the solver
+  runtime reports `FSI_LONG_SEGMENT_PASS`. Fix: `segment.py` now enforces
+  a first-computed force-continuity gate for each real stage>=1. A specific
+  self-test reproduces the 91767 force and requires rejection.
+- The older FPE heuristic falsely flagged `trapFpe`/unrelated signal text;
+  the verifier now matches actual floating-point exception signal patterns.
+  The supplied trial process exit codes are both zero.
+- Trial stderr shows two Python entrypoint files were read as Bash, despite
+  successful execution. They were passed as positional arguments into the
+  sourced OpenFOAM bashrc. The new batch script saves the four values in
+  named shell variables and executes `set --` BEFORE sourcing bashrc; CI
+  asserts the order. This is an orchestration fix, not a solver modification.
+  The exact originating internal source command has not yet been instrumented,
+  so do not overclaim causality.
+
+**No further long job is authorized.** The first raw force may belong to
+an unaccepted implicit iteration; use the new read-only differential audit to
+compare the first and accepted-window force against the 91543 continuous run
+before choosing another physical-state repair.
+
+Read-only evidence command, pinned to the branch SHA:
+```bash
+REV=REPLACE_WITH_CURRENT_PINNED_REPAIR_SHA
+OUT="$HOME/hpcc-fsi/crossjob-fix-20261116/audit-91767-continuity-readonly.py"
+curl -fLsS "https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/$REV/hpcc/restart-forensics/audit-91767-continuity-readonly.py" -o "$OUT"
+python3 "$OUT" --self-test
+python3 "$OUT" --base "$HOME/hpcc-fsi"
+```
+
+This only reads saved logs, copies, and watch integrals. It does not
+modify 91543, 91767, the 91006 checkpoint, solver sources, or scheduler.
+
 ## One small, isolated real test while 91543 continues
 
 Use the **commit SHA** of this repair branch in raw GitHub URLs so test binaries/scripts stay pinned. On the HPCC login node:
