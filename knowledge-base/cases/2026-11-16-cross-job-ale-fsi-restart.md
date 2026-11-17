@@ -1,6 +1,6 @@
 # 案例｜2026-11-16～17 三维海草 ALE–FSI 跨 Slurm 作业续算
 
-**状态：CANDIDATE，未完全修复，不得启动自动长程接力。** 用户最后提供的 HPCC 日志显示作业 92264 仍 RUNNING，新方案已接受第一个耦合窗口，第二窗口和作业最终报告未提供。此状态须由真实计算记录更新，GitHub CI 不代表真实 FSI 验收。
+**状态：G0 双窗口 PASS；G1（第二次跨 Slurm 作业，20 窗口）预检 PASS，尚未真实运行。长程自动接力仍未放行。** 用户 HPCC 实际输出确认 92264 的 `INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS`、原生 `FSI_LONG_SEGMENT_PASS`，且源检查点经增量续算驱动再次按 Fx、位移增量对照审核后给出 `DELTA_CONTINUATION_PREFLIGHT_PASS`。仅代表第一次两窗口跨进程恢复得到验证，不代表连续 20 窗口及再次跨作业重启已成功。GitHub CI 是离线程序自检，不替代真实 HPC 数据。
 
 ## 1. 模型与运行环境
 
@@ -76,6 +76,31 @@ Force 未初始化不是唯一根因：初始化 Force 的 91819 仍产生相同
 
 首次 MeshCo 与连续计算只差约 0.049%，已接受 Fx 相对误差约 0.49%，第一窗口的位移增量也高度一致。这证明**第一个窗口明显改善**，不证明第二窗口、下一次跨作业或长程生产已经成功。
 
+## 5.1 G0 完整真实报告更新（2026-11-17，由 HPCC 终端提供）
+
+作业 **92264**：HPCC 终端明确给出 `G0_REPORTED_STATUS: INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS`，`NATIVE_STATUS: FSI_LONG_SEGMENT_PASS`。其已接受 `precice-Solid-watchintegral` 对照为：
+
+| 物理时刻 | 连续 91543 Fx/N | 92264 Fx/N | Fx 相对误差 |
+|---|---:|---:|---:|
+| 0.032625 s | 0.0178807774 | 0.0177932299 | 0.48961797% |
+| 0.032750 s | 0.0181010198 | 0.0182393924 | 0.76444643% |
+
+**增量位移的正确检验**（与 91543 对应窗口的绝对位移积分**之差**比较，不是与绝对积分直接比）：
+
+| 时间窗口 | 92264 Delta0 | 91543 绝对 Disp0 窗口差 | Delta0 相对误差 | 92264 Delta2 | 91543 绝对 Disp2 窗口差 | Delta2 相对误差 |
+|---|---:|---:|---:|---:|---:|---:|
+| 窗口 1 | 0.105507194 | 0.1055088 | 0.001522% | -0.00818638042 | -0.00818846 | 0.025396% |
+| 窗口 2 | 0.105468159 | 0.1054706 | 0.002314% | -0.00814644011 | -0.00815329 | 0.084014% |
+
+此前已核验新方案首个 MeshCo=1.8086590122887e-5，与 91543 同物理时刻首个 MeshCo=1.8095493183964e-5 的相对差约 0.049%。最后的 PASS 记录为原生结果和科学对照提供了结束证据。**未见完整 `sacct` 完成状态；`squeue` 提示 `slurm_load_jobs error: Invalid job id specified` 表明旧 ID 不再被当前队列识别，不应据此推断计算失败。**
+
+**G1 只读预检已成功**：
+`DELTA_CONTINUATION_SHORT_STAGE_OFFLINE_SELFTEST_PASS`；
+`DELTA_CONTINUATION_PREFLIGHT_PASS source .../trial-92264 from 0.03275 to 0.03525 structural_restart_step 4 windows 20`；
+`SOURCE_CHECKPOINT_APPROVED_NO_SBATCH`；
+`G1_PREFLIGHT_PASSED_NOT_SUBMITTED`。
+已冻结下一阶段代码于 HPCC 目录 `~/hpcc-fsi/crossjob-fix-20261116/delta-next-a0681df79291f7f1e71b1e408891386b8c644ce0`。该任务尚未提交；不能标注 G1 PASS。
+
 ## 6. 严格的后续验收关卡
 
 ### G0｜初次两窗口 92264
@@ -83,7 +108,7 @@ Force 未初始化不是唯一根因：初始化 Force 的 91819 仍产生相同
 - 最终 INCREMENTAL_DISPLACEMENT_RESULT.json 状态必须为 INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS。
 - 两次 Fx 对应连续参考误差均不超过 1%，同时逐窗口 DisplacementDelta 0、2 相对于连续参考位移增量的误差均不超过 1%。
 - 第一条 native MeshCo 相对正常 91543 不超过 10 倍；全程 Courant/网格守卫通过。
-- **目前只见首窗口日志，G0 不能宣称通过。**
+- **G0 真实两窗口 PASS，详见上方 5.1；G1 仍待真实提交和计算。**
 
 ### G1｜跨新进程接 20 窗口
 - 仅 G0 全部通过后，执行新脚本只读 --preflight；若自动拒绝便停止。
@@ -112,4 +137,4 @@ Force 未初始化不是唯一根因：初始化 Force 的 91819 仍产生相同
 
 ## 8. 归档要求
 
-本文件是**带验收状态的经验复盘**。只有 92264 最终文件和后续 G1/G2 真实作业证据确认无误，才允许把状态改成 RELEASED。应届时补充：作业 ID、sacct 完成时间、计算窗口数、每个阶段源码 commit、checkpoint SHA256、关键曲线与报告路径。不得因为本仓库 CI 自检 PASS 自动改变状态。
+本文件是**带验收状态的经验复盘**。目前 92264 两窗口已 PASS；只有后续 G1/G2 真实作业证据也确认无误，才允许把总体状态改成 RELEASED。应届时补充：作业 ID、sacct 完成时间、计算窗口数、每个阶段源码 commit、checkpoint SHA256、关键曲线与报告路径。不得因为本仓库 CI 自检 PASS 自动改变状态。
