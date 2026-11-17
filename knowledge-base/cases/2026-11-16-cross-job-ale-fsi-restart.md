@@ -1,6 +1,6 @@
 # 案例｜2026-11-16～17 三维海草 ALE–FSI 跨 Slurm 作业续算
 
-**状态：G0 双窗口 PASS；G1（第二次跨 Slurm 作业，20 窗口）已提交作业 92479，仍待真实数值验收。长程自动接力尚未放行。** 用户 HPCC 实际输出确认 92264 的 `INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS`、原生 `FSI_LONG_SEGMENT_PASS`，且源检查点经增量续算驱动再次按 Fx、位移增量对照审核后给出 `DELTA_CONTINUATION_PREFLIGHT_PASS`。仅代表第一次两窗口跨进程恢复得到验证，不代表连续 20 窗口及再次跨作业重启已成功。GitHub CI 是离线程序自检，不替代真实 HPC 数据。
+**状态：G0 双窗口 PASS；G1 跨 Slurm 作业 92479 已 RUNNING，最近一次实测已接受 3/20 窗口，但尚未完成真实数值验收。长程自动接力未放行。** 用户 HPCC 实际输出确认 92264 的 `INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS`、原生 `FSI_LONG_SEGMENT_PASS`，且源检查点经增量续算驱动再次按 Fx、位移增量对照审核后给出 `DELTA_CONTINUATION_PREFLIGHT_PASS`。仅代表第一次两窗口跨进程恢复得到验证，不代表连续 20 窗口及再次跨作业重启已成功。GitHub CI 是离线程序自检，不替代真实 HPC 数据。
 
 ## 1. 模型与运行环境
 
@@ -143,6 +143,26 @@ NO_AUTO_CHAIN_NO_LONG_PRODUCTION
 这只说明 **Slurm 提交成功且预检通过**，不证明作业已经运行、20 窗口全部接受或物理等价。下次继续应检查 `squeue -j 92479`、`sacct -j 92479`、`STATE.json`、`FSI_SEGMENT_RESULT.json`、`DELTA_CONTINUATION_RESULT.json`，并读取与 `91543` 20 个物理时间点匹配的 Fx/Delta0/Delta2。尤其必须检查第二次跨作业重新初始化的首次 MeshCo。
 
 目前没有新的 Slurm 状态或原生结果证据，**不得擅自改成 G1 PASS、不得自动提交 G2**。
+
+## 6.2 G1 运行中里程碑：第二次跨作业接续已接受前三窗口
+
+用户 HPCC 登录节点提供实时状态：
+
+```text
+92479 cpu fsi-delt mc55028 R 7:18 cpu-40-19
+STATE.json: {"status":"RUNNING","stage":1,"restart_from_time_s":0.03275,"final_time_s":0.035250000000000004}
+DELTA_CONTINUATION_RESULT.json: 尚未生成
+```
+
+新会话的初始化 `Force0 = 0.0182393924 N`，与上一段 92264 的第二窗口最终受力完全一致；`DisplacementDelta0/1/2=0`。迄今已接受：
+
+| preCICE 相对时间 (s) | 全局物理时间 (s) | 92479 已接受 Fx (N) | Delta0 积分 | Delta2 积分 |
+|---|---|---:|---:|---:|
+| 0.000125 | 0.032875 | 0.0181957756 | 0.105424308 | -0.00811174060 |
+| 0.000250 | 0.033000 | 0.0188509445 | 0.105380443 | -0.00806826009 |
+| 0.000375 | 0.033125 | 0.0188223670 | 0.105337414 | -0.00801276540 |
+
+**这证实 G1 新会话启动、原生求解持续接受至少三个窗口，但不能从几个正常积分值推导 20 窗口的全部科学一致性。** 该终端输出并未显示 91543 相同时刻 Fx、Delta0/2，也没有 G1 首次 MeshCo 或最终 checkMesh/退出码。需待真实结果再判断、不得自动提交 G2。
 
 ## 7. 只读证据与公开源码
 
