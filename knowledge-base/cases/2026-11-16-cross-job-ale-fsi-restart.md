@@ -1,6 +1,6 @@
 # 案例｜2026-11-16～17 三维海草 ALE–FSI 跨 Slurm 作业续算
 
-**状态：G0 双窗口 PASS；G1（第二次跨 Slurm 作业，20 窗口）预检 PASS，尚未真实运行。长程自动接力仍未放行。** 用户 HPCC 实际输出确认 92264 的 `INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS`、原生 `FSI_LONG_SEGMENT_PASS`，且源检查点经增量续算驱动再次按 Fx、位移增量对照审核后给出 `DELTA_CONTINUATION_PREFLIGHT_PASS`。仅代表第一次两窗口跨进程恢复得到验证，不代表连续 20 窗口及再次跨作业重启已成功。GitHub CI 是离线程序自检，不替代真实 HPC 数据。
+**状态：G0 双窗口 PASS；G1（第二次跨 Slurm 作业，20 窗口）已提交作业 92479，仍待真实数值验收。长程自动接力尚未放行。** 用户 HPCC 实际输出确认 92264 的 `INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS`、原生 `FSI_LONG_SEGMENT_PASS`，且源检查点经增量续算驱动再次按 Fx、位移增量对照审核后给出 `DELTA_CONTINUATION_PREFLIGHT_PASS`。仅代表第一次两窗口跨进程恢复得到验证，不代表连续 20 窗口及再次跨作业重启已成功。GitHub CI 是离线程序自检，不替代真实 HPC 数据。
 
 ## 1. 模型与运行环境
 
@@ -127,6 +127,22 @@ Force 未初始化不是唯一根因：初始化 Force 的 91819 仍产生相同
 - 生产全程必须保留每个阶段的输入哈希、原始网格参考、固体 .rout/HHT 文件和所有 8 MPI 的同时间检查点，并保留实际计算证据。
 - 当物理时间超过 91543 已计算的区间，需要专门的无参考科学校验策略，不能伪造 91543 的未来受力数据。
 - 任务结束条件必须 fail closed，绝不把单窗口正常写成「已完全修复」。
+
+## 6.1 G1 真实 Slurm 提交记录（2026-11-17）
+
+用户在 HPCC 登录节点执行了冻结版本的 `submit-delta-continuation-short.sh --submit`。终端实际输出：
+
+```text
+DELTA_CONTINUATION_SHORT_STAGE_OFFLINE_SELFTEST_PASS
+DELTA_CONTINUATION_PREFLIGHT_PASS source .../trial-92264 from 0.03275 to 0.035250000000000004 structural_restart_step 4 windows 20 NO_SBATCH_NO_SOURCE_WRITES
+SUBMITTED_SINGLE_SHORT_DELTA_JOB=92479
+REPORT=/home/mc55028/hpcc-fsi/crossjob-fix-20261116/delta-continuation/trial-92479/DELTA_CONTINUATION_RESULT.json
+NO_AUTO_CHAIN_NO_LONG_PRODUCTION
+```
+
+这只说明 **Slurm 提交成功且预检通过**，不证明作业已经运行、20 窗口全部接受或物理等价。下次继续应检查 `squeue -j 92479`、`sacct -j 92479`、`STATE.json`、`FSI_SEGMENT_RESULT.json`、`DELTA_CONTINUATION_RESULT.json`，并读取与 `91543` 20 个物理时间点匹配的 Fx/Delta0/Delta2。尤其必须检查第二次跨作业重新初始化的首次 MeshCo。
+
+目前没有新的 Slurm 状态或原生结果证据，**不得擅自改成 G1 PASS、不得自动提交 G2**。
 
 ## 7. 只读证据与公开源码
 
