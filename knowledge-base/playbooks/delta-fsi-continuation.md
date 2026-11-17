@@ -36,6 +36,23 @@
 
 如无最终报告或状态非 PASS，停在这一步；不要临时篡改报告让下游通过。
 
+## 2026-11-17 真实验收进展
+
+G0 作业 92264 已收到最终 `INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS` 与原生 `FSI_LONG_SEGMENT_PASS`。两个已接受 Fx 相对误差分别 **0.490% / 0.764%**，Delta0 的两窗相对误差约 **0.0015% / 0.0023%**，Delta2 约 **0.0254% / 0.0840%**。这证明 G0 合格，但仍不能直接宣布可三天自动接力。
+
+G1 的只读预检已在 HPCC 实际通过，已下载并冻结用于下一阶段的代码：
+
+    CODE="$HOME/hpcc-fsi/crossjob-fix-20261116/delta-next-a0681df79291f7f1e71b1e408891386b8c644ce0"
+
+**G1 真实 Slurm 作业尚未提交。** 如要提交一次 20 窗口，建议直接运行以下固定版本，不覆盖已完成的 92264：
+
+    FSI_DELTA_SCRIPT="$CODE/delta-continuation.py" \
+    FSI_DELTA_CORE="$CODE/segment.py" \
+    FSI_DELTA_RUNNER="$CODE/run-delta-continuation-container.sh" \
+      bash "$CODE/submit-delta-continuation-short.sh" --submit
+
+运行后应出现 `SUBMITTED_SINGLE_SHORT_DELTA_JOB=<JOB>`，新报告位于 `~/hpcc-fsi/crossjob-fix-20261116/delta-continuation/trial-<JOB>/DELTA_CONTINUATION_RESULT.json`；只有真实 G1 PASS 才能进入 G2。
+
 ## D. 20 窗口新接续预检
 
 优先使用 [单命令 G0 状态检查及 G1 只读准备脚本](../../hpcc/restart-forensics/prepare-g1-after-92264-readonly.sh)。它读取 92264 正式报告；若缺失或未通过，停止且不提交；若通过，会下载固定提交的后续代码副本并调用严格预检。**不会执行 sbatch。**
