@@ -44,14 +44,42 @@ G1 的只读预检已在 HPCC 实际通过，已下载并冻结用于下一阶�
 
     CODE="$HOME/hpcc-fsi/crossjob-fix-20261116/delta-next-a0681df79291f7f1e71b1e408891386b8c644ce0"
 
-**G1 真实 Slurm 作业尚未提交。** 如要提交一次 20 窗口，建议直接运行以下固定版本，不覆盖已完成的 92264：
+**历史提示：** 以下 20 窗口提交命令已在 2026-11-17 执行，真实作业号为 **92479**。它完成了 20 窗口的科学对照，但最大 Fx 误差 1.025275% > 原定 1%，因此最终原报告为 `DELTA_CONTINUATION_SHORT_STAGE_FAIL`，**不要重复提交这条旧 G1 命令**：
 
     FSI_DELTA_SCRIPT="$CODE/delta-continuation.py" \
     FSI_DELTA_CORE="$CODE/segment.py" \
     FSI_DELTA_RUNNER="$CODE/run-delta-continuation-container.sh" \
       bash "$CODE/submit-delta-continuation-short.sh" --submit
 
-运行后应出现 `SUBMITTED_SINGLE_SHORT_DELTA_JOB=<JOB>`，新报告位于 `~/hpcc-fsi/crossjob-fix-20261116/delta-continuation/trial-<JOB>/DELTA_CONTINUATION_RESULT.json`；只有真实 G1 PASS 才能进入 G2。
+该历史作业的报告位于 `~/hpcc-fsi/crossjob-fix-20261116/delta-continuation/trial-92479/DELTA_CONTINUATION_RESULT.json`。原始严格 1% 科学门槛仍为 FAIL；下方新增针对该边缘失败的独立只读审核和**诊断性质的** G2 入口。
+
+## 2026-11-18｜G1 受力边缘超限后的正确处理与 G2 诊断
+
+G1 `92479` 的最终输出：严格科学 `FAIL`，最大 Fx 相对误差 1.025275%（超过 1% 约 0.025275 个百分点）；最大 Delta0/Delta2 误差 0.005463% / 0.095843%；首次 MeshCo 比值 0.998921，`exception=None`。这不是已证实的网格崩溃，也不意味着严格科学等价已经通过。
+
+**先分开审查三个层级**：① 原生两个参与者、MPI 文件和结构检查点是否完整；② 首次 ALE、Force 初始化和逐窗 Delta 是否连续；③ 与 91543 的 1% 科学验收是否合格。第三项当前 FAIL，禁止修改旧结果或悄悄放宽标准。
+
+为了测试这一小幅数值漂移是否会在**下一次真正独立的 Slurm 重启**继续扩大，已经准备了只允许从 92479 出发的两窗口 G2 诊断。使用固定 Git 提交的 [一次性预检与提交入口](../../hpcc/restart-forensics/prepare-and-submit-g2-92479.sh)，默认 `--preflight` 只读；即使显式 `--submit`，提交前也会强制执行独立 `audit-g1-92479-for-g2.py`。
+
+- 如果 92479 的原生 `FSI_SEGMENT_RESULT.json`、20 窗口已接受数据、八个 MPI/CalculiX 检查点、第一次 MeshCo 和来源初始 Force 对照不能一致通过，则停止，不提交
+- G2 诊断特别设置防止错误放大的启动护栏：Fx 误差不超过 2%，Delta0/2 各不超过 0.5%，MeshCo 与不中断对照比值在 0.8～1.2；**这些仅是选择短试验是否有意义的边界，绝不替代原 1% 科学验收**
+- 允许的 G2 物理范围固定为 `0.035250 → 0.035500 s`，两耦合窗口；会从 92479 的结构最新检查点读取下一 restart step，不覆盖 G1
+- G2 即使成功，结果也只能是 `G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION`；长程生产自动接力仍被禁止，直到独立验证物理一致性并建立可解释的误差预算
+
+HPCC 可用的执行命令（将以下长串固定 commit 替换为 GitHub 本案例实际确认版本；**不能用旧 G1 脚本替代**）：
+
+```bash
+FIX="$HOME/hpcc-fsi/crossjob-fix-20261116"
+REV="e10fa97a7b5d1026867da47a5fa86190eca72c2b"
+curl -fLsS \
+  "https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/$REV/hpcc/restart-forensics/prepare-and-submit-g2-92479.sh" \
+  -o "$FIX/prepare-and-submit-g2-92479.sh"
+bash "$FIX/prepare-and-submit-g2-92479.sh" --preflight
+# 仅在预检通过、确实需要真实第三次独立 Slurm 验证时：
+bash "$FIX/prepare-and-submit-g2-92479.sh" --submit
+```
+
+该命令不会自动修改 91543/92479/91006，也不会把源历史 `FAIL` 变成 `PASS`。如审核不通过，读取错误标签并修复真正的问题，不可用伪造状态文件绕过。
 
 ## D. 20 窗口新接续预检
 
