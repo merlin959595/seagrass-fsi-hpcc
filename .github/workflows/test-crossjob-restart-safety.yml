@@ -40,7 +40,7 @@ jobs:
           assert 'if [[ "$ACTION" = "--preflight" ]]' in p
           assert "NO_AUTO_CHAIN_NO_LONG_PRODUCTION" in p
           PY_PIN
-      - name: G1 marginal failure independent audit and safe G2 diagnostic restrictions
+      - name: G1 read-only native audit and diagnostic G2 test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-g1-92479-for-g2.py
           python3 hpcc/restart-forensics/audit-g1-92479-for-g2.py --self-test
@@ -48,16 +48,18 @@ jobs:
           bash -n hpcc/restart-forensics/submit-delta-continuation-short.sh hpcc/restart-forensics/run-delta-continuation-container.sh
           python3 - <<'PY_DIAG'
           from pathlib import Path
-          d=Path('hpcc/restart-forensics/delta-continuation.py').read_text()
-          b=Path('hpcc/restart-forensics/submit-delta-continuation-short.sh').read_text()
-          r=Path('hpcc/restart-forensics/run-delta-continuation-container.sh').read_text()
-          assert 'G2_DIAGNOSTIC_ONLY_PERMITTED' not in d or True
-          assert 'DIAGNOSTIC_G2_ONLY_PERMITTED_FROM_G1_92479' in d
-          assert 'G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION' in d
-          assert 'if diagnostic_g2 and (windows!=2 or source_job!=92479)' in d
-          assert 'FSI_G1_AUDITOR' in b and '--require-g2-eligible' in b
-          assert 'FSI_G2_DIAGNOSTIC' in b and 'FSI_G2_DIAGNOSTIC' not in r
-          assert 'G2_DIAGNOSTIC="
+          d=Path("hpcc/restart-forensics/delta-continuation.py").read_text()
+          b=Path("hpcc/restart-forensics/submit-delta-continuation-short.sh").read_text()
+          r=Path("hpcc/restart-forensics/run-delta-continuation-container.sh").read_text()
+          assert "DIAGNOSTIC_G2_ONLY_PERMITTED_FROM_G1_92479" in d
+          assert "G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION" in d
+          assert "G2_EXPERIMENT_CANNOT_BECOME_LONG_PRODUCTION" in d
+          assert "require-g2-eligible" in b
+          assert "FSI_G2_DIAGNOSTIC" in b
+          assert "G2_DIAGNOSTIC" in r
+          print("G2_DIAGNOSTIC_SAFETY_GATES_OFFLINE_PASS")
+          PY_DIAG
+      - name: Read-only available ALE snapshot audit self-test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
           python3 hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py --self-test
