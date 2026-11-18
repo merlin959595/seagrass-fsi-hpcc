@@ -45,7 +45,7 @@ jobs:
           python3 -m py_compile hpcc/restart-forensics/audit-g1-92479-for-g2.py
           python3 hpcc/restart-forensics/audit-g1-92479-for-g2.py --self-test
           python3 hpcc/restart-forensics/delta-continuation.py --self-test
-          bash -n hpcc/restart-forensics/submit-delta-continuation-short.sh hpcc/restart-forensics/run-delta-continuation-container.sh
+          bash -n hpcc/restart-forensics/submit-delta-continuation-short.sh hpcc/restart-forensics/run-delta-continuation-container.sh hpcc/restart-forensics/prepare-and-submit-g2-92479.sh
           python3 - <<'PY_DIAG'
           from pathlib import Path
           d=Path("hpcc/restart-forensics/delta-continuation.py").read_text()
