@@ -1,6 +1,6 @@
 # 案例｜2026-11-16～17 三维海草 ALE–FSI 跨 Slurm 作业续算
 
-**最新状态（2026-11-18）：G0 92264 两窗口 PASS；G1 92479 原生求解/全部 20 已接受窗口/结构和 8 个 MPI 检查点经独立只读审计 PASS，但原定 1% Fx 科学判据 FAIL（最大 1.025275%）；G2 93674 两窗口独立诊断已成功提交 Slurm，仍待运行和科学验收。不得标注长程自动接力获批。** 该结论来自用户提供的 HPCC 实际审计和提交日志，不是从 CI 自测推断的数值结果。
+**最新状态（2026-11-18）：G0 92264 两窗口 PASS；G1 92479 原生求解/全部 20 已接受窗口/结构和 8 个 MPI 检查点经独立只读审计 PASS，但原定 1% Fx 科学判据 FAIL（最大 1.025275%）；G2 93674 两窗口独立诊断已在 cpu-72-1 节点 RUNNING，最近一次日志仅记录初始耦合值、尚未接受第一个窗口，仍待科学验收。不得标注长程自动接力获批。** 该结论来自用户提供的 HPCC 实际审计和提交日志，不是从 CI 自测推断的数值结果。
 
 ## 1. 模型与运行环境
 
@@ -249,6 +249,22 @@ ORIGINAL_G1_SCIENTIFIC_FAIL_NOT_OVERWRITTEN
 **解释**：这证实 92479 原生数值计算、20 个窗口的时刻匹配、源物理状态检查点及接口初始化通过独立审计。严格 1% 力误差的原始 G1 FAIL 依旧有效。G2 的状态仅是 **已提交**，尚未收到 Slurm RUNNING/COMPLETED、两个新接受窗口、首个 MeshCo 或最终 `DELTA_CONTINUATION_RESULT.json`，不能宣称 G2 PASS，更不能自动启动长程生产。
 
 **下一个安全操作**：读取 `squeue -j 93674`、`sacct -j 93674`，输出 `trial-93674/STATE.json`、`FSI_SEGMENT_RESULT.json`、`DELTA_CONTINUATION_RESULT.json` 以及对应 watchintegral 两行；只有原生/科学/网格/存档检查通过才安排下一生产级验证。
+
+## 6.5 G2 93674 正在运行，尚无接受窗口（用户 HPCC 日志，2026-11-18）
+
+Slurm 用户实测：
+
+```text
+JOBID=93674, partition=cpu, state=R, elapsed=2:01, node=cpu-72-1
+STATE.json: RUNNING; restart_from_time_s=0.03525; final_time_s=0.0355
+preCICE Solid watch:
+Time Force0 Force1 Force2 DisplacementDelta0 DisplacementDelta1 DisplacementDelta2
+0.00000000e+00 2.61982480e-02 -9.62249636e-10 -2.47877640e-03 0 0 0
+FSI_SEGMENT_RESULT.json: 尚未生成
+DELTA_CONTINUATION_RESULT.json: 尚未生成
+```
+
+这只能确认新 Slurm 作业已开始、耦合初始化数据存在；**目前 0/2 个窗口已被日志证明接受**。初始 Force0=0.026198248 N，需与 92479 最后一个真正接受的 Force0 对照确认连续性；零 Delta 是预期状态，不能单独证明网格或科学受力正确。不能将 RUNNING、存在初始化日志、无最终报告视为 G2 PASS。下一步只读检查首次原生 MeshCo、两窗口的真实接受日志、92479 源终态 Fx、最终网格检查及退出码。严格 1% 科学标准保持不变。
 
 ## 7. 只读证据与公开源码
 
