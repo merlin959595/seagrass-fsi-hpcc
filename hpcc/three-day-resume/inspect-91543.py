@@ -46,8 +46,9 @@ def accepted_last(path):
             prev=last;last=vals;count+=1
     return (prev,last,count)
 
-def inspect(base):
-    root=base/"three-day-proven/long-job-91543"
+def inspect(base,case_root=None):
+    root=(Path(case_root).resolve(strict=True) if case_root is not None
+          else base/"three-day-proven/long-job-91543")
     source=root/"runs/hpcc-implicit-002"
     if not source.is_dir():raise RuntimeError(f"MISSING_91543_CASE: {source}")
     ranks={}
