@@ -127,8 +127,10 @@ def classify(native,stage,scientific,mesh,source_force,initial_row,raw_result):
     }
 
 
-def audit(base,driver_path):
+def audit(base,driver_path,core_path=None):
     mod=load(driver_path)
+    core_path=core_path or driver_path.with_name("segment.py")
+    core=mod.load_core(core_path)
     work=base/EXPECTED_ROOT
     original=mod.read_json(work/"DELTA_CONTINUATION_RESULT.json")
     native=mod.read_json(work/"FSI_SEGMENT_RESULT.json")
@@ -151,10 +153,10 @@ def audit(base,driver_path):
         (work/"STATE.json").is_file()
         and (work/"runs/hpcc-implicit-002/solid/seagrass.rout").is_file()
         and (work/"runs/hpcc-implicit-002/solid/kinematic_state.bin").is_file()
-        and all(len(mod.load_core(driver_path.with_name("segment.py")).numeric_time_names(
+        and all(len(core.numeric_time_names(
            fluid/f"processor{rank}"))>=2 for rank in range(8))
     )
-    physical,_=mod.load_core(driver_path.with_name("segment.py")).latest_time(fluid)
+    physical,_=core.latest_time(fluid)
     physical_ok=same(physical,END)
     result["source_has_complete_8_rank_and_solid_checkpoint"]=source_ok
     result["source_checkpoint_physical_time_verified"]=physical_ok
