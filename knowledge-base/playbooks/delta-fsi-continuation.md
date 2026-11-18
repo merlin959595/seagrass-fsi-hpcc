@@ -93,7 +93,7 @@ G2 93674 实际原生终态 `FSI_LONG_SEGMENT_PASS`，两参与者退出码均�
 
 ```bash
 ROOT="$HOME/hpcc-fsi/crossjob-fix-20261116"
-REV="f899dec6c262499ad1ad3c5917236528fc586b2c"
+REV="44aaeba71f0fb7849a3bfa0b4063a75ad5eadef9"
 curl -fLsS \
   "https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/$REV/hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh" \
   -o "$ROOT/prepare-and-submit-g3-after-93674.sh"
