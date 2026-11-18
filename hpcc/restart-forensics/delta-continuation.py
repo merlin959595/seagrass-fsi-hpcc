@@ -123,13 +123,17 @@ def verified_source(source_work, core, base, diagnostic_g2=False):
                 f"Fx={evidence['max_Fx_relative_error']:.8g} "
                 f"Delta0={evidence['max_delta0_relative_error']:.8g} "
                 f"Delta2={evidence['max_delta2_relative_error']:.8g}")
-        auditor_path=Path(__file__).resolve().with_name("audit-g1-92479-for-g2.py")
+        auditor_path=Path(os.environ.get(
+            "FSI_G1_AUDITOR",
+            str(Path(__file__).resolve().with_name("audit-g1-92479-for-g2.py"))))
         sp=importlib.util.spec_from_file_location("strict_g1_native_auditor",auditor_path)
         if sp is None or sp.loader is None:
             raise RuntimeError("MISSING_INDEPENDENT_NATIVE_AND_SCIENCE_AUDITOR")
         auditor=importlib.util.module_from_spec(sp)
         sp.loader.exec_module(auditor)
-        audit=auditor.audit(base,Path(__file__).resolve())
+        audit=auditor.audit(base,Path(__file__).resolve(),core_path=Path(
+            os.environ.get("FSI_DELTA_CORE_PATH",
+            str(Path(__file__).resolve().with_name("segment.py")))))
         if not audit["g2_diagnostic_eligible"]:
             raise RuntimeError("G1_92479_NOT_QUALIFIED_FOR_G2_DIAGNOSTIC")
     return source,declared,current_step+1,outcome
@@ -455,7 +459,9 @@ def main():
     if args.source_work is None or args.core is None or args.source_job is None:
         p.error("Supply --source-work, --source-job and --core")
     base=args.base.expanduser().resolve(strict=True)
-    core=load_core(args.core.expanduser().resolve(strict=True))
+    core_path=args.core.expanduser().resolve(strict=True)
+    os.environ["FSI_DELTA_CORE_PATH"]=str(core_path)
+    core=load_core(core_path)
     source_work=args.source_work.expanduser().resolve(strict=True)
     if args.diagnostic_g2 and (args.windows!=2 or args.source_job!=92479):
         p.error("--diagnostic-g2 requires exactly 2 windows from job 92479")
