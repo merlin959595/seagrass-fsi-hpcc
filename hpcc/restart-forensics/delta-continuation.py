@@ -40,9 +40,14 @@ def read_json(path):
     return json.loads(path.read_text())
 
 
-def verified_source(source_work, core, base):
+def verified_source(source_work, core, base, diagnostic_g2=False):
     """Only completed, accepted cases with the same verified delta protocol."""
     source_work=source_work.resolve(strict=True)
+    # Only 92479 is authorized as a conditional scientific-failure parent.
+    g1=(base/"crossjob-fix-20261116/delta-continuation/trial-92479").resolve()
+    exceptional=diagnostic_g2 and source_work==g1
+    if diagnostic_g2 and not exceptional:
+        raise RuntimeError("DIAGNOSTIC_G2_ONLY_PERMITTED_FROM_G1_92479")
     if source_work.name.startswith("trial-") and source_work.name=="trial-92264":
         marker=read_json(source_work/"INCREMENTAL_DISPLACEMENT_RESULT.json")
         if marker.get("status")!="INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS":
@@ -50,7 +55,9 @@ def verified_source(source_work, core, base):
     else:
         marker=read_json(source_work/"DELTA_CONTINUATION_RESULT.json")
         if marker.get("status")!="DELTA_CONTINUATION_SHORT_STAGE_PASS":
-            raise RuntimeError("PARENT DELTA CONTINUATION NOT APPROVED")
+            if not (exceptional and marker.get("status")=="DELTA_CONTINUATION_SHORT_STAGE_FAIL"
+                    and marker.get("exception") is None):
+                raise RuntimeError("PARENT DELTA CONTINUATION NOT APPROVED")
     outcome=read_json(source_work/"FSI_SEGMENT_RESULT.json")
     if outcome.get("status")!="FSI_LONG_SEGMENT_PASS":
         raise RuntimeError("Source native coupling was not accepted")
@@ -110,16 +117,28 @@ def verified_source(source_work, core, base):
     physical_start=declared-count*DT
     evidence=scientific_gate(base,source_work,source_work,physical_start,count)
     if evidence["status"]!="PASS":
-        raise RuntimeError(
-            "PARENT_SCIENTIFIC_DELTA_CONTINUITY_FAILED "
-            f"Fx={evidence['max_Fx_relative_error']:.8g} "
-            f"Delta0={evidence['max_delta0_relative_error']:.8g} "
-            f"Delta2={evidence['max_delta2_relative_error']:.8g}")
+        if not exceptional:
+            raise RuntimeError(
+                "PARENT_SCIENTIFIC_DELTA_CONTINUITY_FAILED "
+                f"Fx={evidence['max_Fx_relative_error']:.8g} "
+                f"Delta0={evidence['max_delta0_relative_error']:.8g} "
+                f"Delta2={evidence['max_delta2_relative_error']:.8g}")
+        auditor_path=Path(__file__).resolve().with_name("audit-g1-92479-for-g2.py")
+        sp=importlib.util.spec_from_file_location("strict_g1_native_auditor",auditor_path)
+        if sp is None or sp.loader is None:
+            raise RuntimeError("MISSING_INDEPENDENT_NATIVE_AND_SCIENCE_AUDITOR")
+        auditor=importlib.util.module_from_spec(sp)
+        sp.loader.exec_module(auditor)
+        audit=auditor.audit(base,Path(__file__).resolve())
+        if not audit["g2_diagnostic_eligible"]:
+            raise RuntimeError("G1_92479_NOT_QUALIFIED_FOR_G2_DIAGNOSTIC")
     return source,declared,current_step+1,outcome
 
 
-def build_private_stage(core,base,source_work,destination,windows,source_job):
-    source,t0,step,parent=verified_source(source_work,core,base)
+def build_private_stage(core,base,source_work,destination,windows,source_job,diagnostic_g2=False):
+    source,t0,step,parent=verified_source(source_work,core,base,diagnostic_g2)
+    if diagnostic_g2 and (windows!=2 or source_job!=92479):
+        raise RuntimeError("G2_DIAGNOSTIC_MUST_BE_2_WINDOWS_FROM_92479")
     if windows not in (2,20):
         raise RuntimeError("Only 2 or 20 windows allowed until separate long-job qualification")
     t1=t0+windows*DT
@@ -212,6 +231,8 @@ def build_private_stage(core,base,source_work,destination,windows,source_job):
         "delta_protocol_inherited_not_repatched":True,
         "initial_force_only":True,"mesh_registration_original_reference":True,
         "parent_stage_status":parent["status"],
+        "G2_DIAGNOSTIC_FROM_SCIENTIFICALLY_FAILED_G1":diagnostic_g2,
+        "PRODUCTION_APPROVED":False if diagnostic_g2 else None,
         "DO_NOT_AUTO_CHAIN":True
     }
     core.jwrite(destination/"FSI_SEGMENT_STAGE.json",metadata)
@@ -295,16 +316,18 @@ def meshco_reference_gate(base,work,start):
             "tenfold_first_native_meshco_pass":ratio is not None and 0<=ratio<=10}
 
 
-def run_trial(base,source_work,work,windows,core_path,source_job):
+def run_trial(base,source_work,work,windows,core_path,source_job,diagnostic_g2=False):
     if not os.environ.get("SLURM_JOB_ID"):
         raise RuntimeError("Compute node Slurm allocation required")
     core=load_core(core_path)
     # Fail-closed source before any files created.
-    source,start,step,parent=verified_source(source_work,core,base)
+    source,start,step,parent=verified_source(source_work,core,base,diagnostic_g2)
+    if diagnostic_g2 and (windows!=2 or source_job!=92479):
+        raise RuntimeError("G2_EXPERIMENT_CANNOT_BECOME_LONG_PRODUCTION")
     if work.exists():
         raise RuntimeError("Work already exists")
     def staged(_base,_stage,_job,_dest,_n,_chain_root=None):
-        return build_private_stage(core,base,source_work,work,windows,source_job)
+        return build_private_stage(core,base,source_work,work,windows,source_job,diagnostic_g2)
     original=core.stage_inputs
     core.stage_inputs=staged
     error=None
@@ -323,24 +346,43 @@ def run_trial(base,source_work,work,windows,core_path,source_job):
         validation=scientific_gate(base,source_work,work,start,windows)
     except Exception as e:
         if error is None:error=repr(e)
-    ok=(
+    native_ok=bool(
         error is None and native is not None and validation is not None
         and native.get("status")=="FSI_LONG_SEGMENT_PASS"
         and native.get("accepted_windows")==windows
         and native.get("participant_exit_codes")=={"fluid":0,"solid":0}
         and native.get("native_terminal_mesh",{}).get("status")=="PASS"
-        and validation.get("status")=="PASS"
         and first_meshco["tenfold_first_native_meshco_pass"]
     )
+    strict_ok=bool(native_ok and validation.get("status")=="PASS")
+    # Bounded 2% Fx / 0.5% Delta are DIAGNOSTIC-only guardrails.
+    # The original scientific 1% FAIL is never overwritten.
+    bounded_ok=bool(
+        native_ok and validation["max_Fx_relative_error"]<=.02
+        and validation["max_delta0_relative_error"]<=.005
+        and validation["max_delta2_relative_error"]<=.005
+        and first_meshco["ratio"] is not None
+        and .8<=first_meshco["ratio"]<=1.2)
+    ok=bool(bounded_ok if diagnostic_g2 else strict_ok)
+    verdict=(
+        "G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION" if ok else
+        "G2_DIAGNOSTIC_FAIL" if diagnostic_g2 else
+        "DELTA_CONTINUATION_SHORT_STAGE_FAIL")
+    if not diagnostic_g2 and ok:
+        verdict="DELTA_CONTINUATION_SHORT_STAGE_PASS"
     report={
-        "status":"DELTA_CONTINUATION_SHORT_STAGE_PASS" if ok
-                 else "DELTA_CONTINUATION_SHORT_STAGE_FAIL",
+        "status":verdict,
         "parent_source":str(source_work),
         "start_t":start,"end_t":start+windows*DT,
         "windows":windows,"next_structural_step":step,
         "native_result":native,"scientific_vs_91543":validation,
         "first_native_meshco_vs_91543":first_meshco,
         "exception":error,
+        "diagnostic_g2_only":diagnostic_g2,
+        "native_mechanical_pass":native_ok,
+        "original_strict_1pct_science_pass":strict_ok,
+        "bounded_2pct_diagnostic_pass":bounded_ok,
+        "production_approved":False if diagnostic_g2 else strict_ok,
         "NEVER_AUTO_QUEUE_NEXT_STAGE":True,
     }
     if work.is_dir():
@@ -405,6 +447,8 @@ def main():
     p.add_argument("--preflight",action="store_true")
     p.add_argument("--run",action="store_true")
     p.add_argument("--self-test",action="store_true")
+    p.add_argument("--diagnostic-g2",action="store_true",
+        help="92479 to a two-window diagnostic only, after independent native audit")
     args=p.parse_args()
     if args.self_test:
         return self_test()
@@ -413,20 +457,23 @@ def main():
     base=args.base.expanduser().resolve(strict=True)
     core=load_core(args.core.expanduser().resolve(strict=True))
     source_work=args.source_work.expanduser().resolve(strict=True)
-    source,start,step,outcome=verified_source(source_work,core,base)
+    if args.diagnostic_g2 and (args.windows!=2 or args.source_job!=92479):
+        p.error("--diagnostic-g2 requires exactly 2 windows from job 92479")
+    source,start,step,outcome=verified_source(source_work,core,base,args.diagnostic_g2)
     if args.preflight:
         print("DELTA_CONTINUATION_PREFLIGHT_PASS",
               "source",source_work,"from",start,
               "to",start+args.windows*DT,
               "structural_restart_step",step,
               "windows",args.windows,
+              "diagnostic_g2_only",args.diagnostic_g2,
               "NO_SBATCH_NO_SOURCE_WRITES")
         return
     if not args.run or args.work is None:
         p.error("Supply --run --work fresh_output or --preflight")
     run_trial(base,source_work,args.work.expanduser().resolve(),
               args.windows,args.core.expanduser().resolve(strict=True),
-              args.source_job)
+              args.source_job,args.diagnostic_g2)
 
 
 if __name__=="__main__":
