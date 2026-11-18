@@ -113,7 +113,7 @@ jobs:
       - name: Three-day 91543 exact checkpoint full-backup and Delta continuation offline validation
         run: |
           python3 -m py_compile hpcc/three-day-resume/inspect-91543.py hpcc/three-day-resume/backup-91543-full.py hpcc/three-day-resume/resume-91543-delta.py hpcc/three-day-resume/submit-91543-continuation.py
-          bash -n hpcc/three-day-resume/run-91543-continuation-container.sh
+          bash -n hpcc/three-day-resume/run-91543-continuation-container.sh hpcc/three-day-resume/backup-and-continue-91543.sh
           python3 hpcc/three-day-resume/resume-91543-delta.py --self-test
           python3 - <<'PY_3DAY'
           from pathlib import Path
