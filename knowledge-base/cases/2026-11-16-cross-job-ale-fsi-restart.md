@@ -1,6 +1,6 @@
 # 案例｜2026-11-16～17 三维海草 ALE–FSI 跨 Slurm 作业续算
 
-**状态：G0 双窗口 PASS；G1 跨 Slurm 作业 92479 已 RUNNING，最近一次实测已接受 3/20 窗口，但尚未完成真实数值验收。长程自动接力未放行。** 用户 HPCC 实际输出确认 92264 的 `INCREMENTAL_DISPLACEMENT_TWO_WINDOW_PASS`、原生 `FSI_LONG_SEGMENT_PASS`，且源检查点经增量续算驱动再次按 Fx、位移增量对照审核后给出 `DELTA_CONTINUATION_PREFLIGHT_PASS`。仅代表第一次两窗口跨进程恢复得到验证，不代表连续 20 窗口及再次跨作业重启已成功。GitHub CI 是离线程序自检，不替代真实 HPC 数据。
+**状态：G0（92264 两窗口）PASS；G1（92479 20 窗口）科学对照 FAIL，最大 Fx 误差 1.025275% 略高于原 1% 门槛。G1 原生结果须由独立只读审计核查，G2 仅允许独立两窗口诊断；长程自动接力未放行。** 用户提供了完整 G1 汇总输出，但未贴出原生 FSI_SEGMENT_RESULT.json 全部字段。不得擅自将 G1 原 FAIL 改写为 PASS，也不能从 GitHub CI 成功推断 HPCC 原生计算完成。
 
 ## 1. 模型与运行环境
 
@@ -163,6 +163,50 @@ DELTA_CONTINUATION_RESULT.json: 尚未生成
 | 0.000375 | 0.033125 | 0.0188223670 | 0.105337414 | -0.00801276540 |
 
 **这证实 G1 新会话启动、原生求解持续接受至少三个窗口，但不能从几个正常积分值推导 20 窗口的全部科学一致性。** 该终端输出并未显示 91543 相同时刻 Fx、Delta0/2，也没有 G1 首次 MeshCo 或最终 checkMesh/退出码。需待真实结果再判断、不得自动提交 G2。
+
+## 6.3 G1 全 20 窗口已汇总，1% 科学门槛边缘失败（2026-11-18）
+
+用户从真实 HPCC `DELTA_CONTINUATION_RESULT.json` 输出：
+
+```text
+G1: DELTA_CONTINUATION_SHORT_STAGE_FAIL
+科学对照: FAIL
+最大 Fx 误差: 0.010252751525572316
+最大 Delta0 误差: 5.4627645726802694e-05
+最大 Delta2 误差: 0.0009584332019428214
+首次 MeshCo: {
+  physical_time_s: 0.032875,
+  91543_first_meshco: 1.7610256378009e-05,
+  candidate_first_meshco: 1.7591253341998e-05,
+  ratio: 0.9989209108826642,
+  tenfold_first_native_meshco_pass: true
+}
+异常: None
+```
+
+结果意味着：
+- Fx 最大相对误差 **1.025275%**，仅比预设的严格 1% 门槛多 **0.025275 个百分点**，这是原判定 FAIL 的直接原因。不能因为超限较小就改写原始结果。
+- Delta0 相对误差最大约 **0.005463%**，Delta2 最大约 **0.095843%**，结构运动积分连续性良好。
+- 首次 ALE MeshCo 比值 **0.998921**，与不中断对照非常接近；但首次值不能替代全程网格检查。
+- `exception=None` 不等于已完整核实原生求解器退出码、检查点和 20 个原生已接受窗口。必须额外审核 `FSI_SEGMENT_RESULT.json`、`STATE.json`、八个 MPI 流体终态和结构 restart 快照。
+- 用户另提到长距离作业已完成；其最终时间、Slurm 状态和对照数据未在这条输出中给出，因此不在此虚构其终态。
+
+**新的分层结论**：G1 严格科学一致性仍 FAIL；只有本机核实 `FSI_LONG_SEGMENT_PASS`、双参与者退出码 0、终态网格 PASS、20 个真实接受窗口、以及初始化 Force/Delta 连续性，才能认定 **G1 的原生求解与接续结构通过**。此后可考虑再做一次短 G2 复测，但这不会把 G1 原来的 1% FAIL 改成 PASS。
+
+### 独立复核与受控 G2 实施
+
+新建代码：
+
+- [G1 只读原生与 20 窗口复核](../../hpcc/restart-forensics/audit-g1-92479-for-g2.py)
+- [受控 G2 两窗口提交入口](../../hpcc/restart-forensics/prepare-and-submit-g2-92479.sh)
+- [增量续算驱动：加入独立审计、G2 诊断状态与不放行生产的隔离](../../hpcc/restart-forensics/delta-continuation.py)
+- [Slurm 单段脚本和计算容器入口](../../hpcc/restart-forensics/submit-delta-continuation-short.sh)
+
+**诊断启动的条件比单一 Fx 阈值更严格**：来源必须恰好为 92479、目标两个窗口；要求源原生状态 PASS、MPI/CalculiX 退出码零、mesh guard 和最终 native checkMesh PASS、结构 .rout 和 HHT 存在、八个处理器有一致终态、结构重启 step 和数据名一致；源初始 Force 必须与 92264 最后已接受 Force 一致，初始 Delta 为零；20 个同物理时间已接受窗口都能对照；首个 MeshCo 与连续 91543 的比值介于 0.8～1.2；逐窗口累计最大误差在额外设置的**仅限 G2 诊断**防护范围内（Fx ≤2%，Delta0/Delta2 各 ≤0.5%）。
+
+**2% 并不是本轮回头修改的科学验收目标**，它只能放行一次“边缘误差是否会在下一次独立 Slurm 进程中继续扩大”的诊断试验。原来的 1% 仍标记 FAIL。G2 结果即使满足这项诊断防护，也只能写成 `G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION`，不能直接作为后续长程生产来源。
+
+后续生产需要建立正式的可重复性基线、并在至少一次再次跨作业试验后确定科学上可接受的力和位移误差；不可因改变判据而冒充严格验收成功。
 
 ## 7. 只读证据与公开源码
 
