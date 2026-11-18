@@ -46,6 +46,8 @@ def verified_source(source_work, core, base, diagnostic_g2=False):
     # Only 92479 is authorized as a conditional scientific-failure parent.
     g1=(base/"crossjob-fix-20261116/delta-continuation/trial-92479").resolve()
     exceptional=diagnostic_g2 and source_work==g1
+    g2=(base/"crossjob-fix-20261116/delta-continuation/trial-93674").resolve()
+    g3_pilot_parent=source_work==g2 and not diagnostic_g2
     if diagnostic_g2 and not exceptional:
         raise RuntimeError("DIAGNOSTIC_G2_ONLY_PERMITTED_FROM_G1_92479")
     if source_work.name.startswith("trial-") and source_work.name=="trial-92264":
@@ -55,9 +57,21 @@ def verified_source(source_work, core, base, diagnostic_g2=False):
     else:
         marker=read_json(source_work/"DELTA_CONTINUATION_RESULT.json")
         if marker.get("status")!="DELTA_CONTINUATION_SHORT_STAGE_PASS":
-            if not (exceptional and marker.get("status")=="DELTA_CONTINUATION_SHORT_STAGE_FAIL"
-                    and marker.get("exception") is None):
-                raise RuntimeError("PARENT DELTA CONTINUATION NOT APPROVED")
+            g2_proof=(
+                g3_pilot_parent
+                and marker.get("status")=="G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION"
+                and marker.get("native_mechanical_pass") is True
+                and marker.get("original_strict_1pct_science_pass") is True
+                and marker.get("diagnostic_g2_only") is True
+                and marker.get("production_approved") is False
+                and marker.get("scientific_vs_91543",{}).get("status")=="PASS"
+                and abs(float(marker.get("end_t",-1))-.0355)<1e-9
+                and marker.get("windows")==2
+                and marker.get("NEVER_AUTO_QUEUE_NEXT_STAGE") is True)
+            if not (g2_proof or (exceptional and
+                    marker.get("status")=="DELTA_CONTINUATION_SHORT_STAGE_FAIL"
+                    and marker.get("exception") is None)):
+                raise RuntimeError("PARENT_DELTA_CONTINUATION_NOT_PROVEN_FOR_SPECIFIC_PILOT")
     outcome=read_json(source_work/"FSI_SEGMENT_RESULT.json")
     if outcome.get("status")!="FSI_LONG_SEGMENT_PASS":
         raise RuntimeError("Source native coupling was not accepted")
@@ -141,6 +155,8 @@ def verified_source(source_work, core, base, diagnostic_g2=False):
 
 def build_private_stage(core,base,source_work,destination,windows,source_job,diagnostic_g2=False):
     source,t0,step,parent=verified_source(source_work,core,base,diagnostic_g2)
+    if source_work.resolve()==(base/"crossjob-fix-20261116/delta-continuation/trial-93674").resolve() and (source_job!=93674 or windows!=20):
+        raise RuntimeError("G3_PILOT_ONLY_20_WINDOWS_FROM_93674")
     if diagnostic_g2 and (windows!=2 or source_job!=92479):
         raise RuntimeError("G2_DIAGNOSTIC_MUST_BE_2_WINDOWS_FROM_92479")
     if windows not in (2,20):
@@ -236,7 +252,8 @@ def build_private_stage(core,base,source_work,destination,windows,source_job,dia
         "initial_force_only":True,"mesh_registration_original_reference":True,
         "parent_stage_status":parent["status"],
         "G2_DIAGNOSTIC_FROM_SCIENTIFICALLY_FAILED_G1":diagnostic_g2,
-        "PRODUCTION_APPROVED":False if diagnostic_g2 else None,
+        "G3_PILOT_FROM_93674":source_job==93674,
+        "PRODUCTION_APPROVED":False,
         "DO_NOT_AUTO_CHAIN":True
     }
     core.jwrite(destination/"FSI_SEGMENT_STAGE.json",metadata)
@@ -326,6 +343,9 @@ def run_trial(base,source_work,work,windows,core_path,source_job,diagnostic_g2=F
     core=load_core(core_path)
     # Fail-closed source before any files created.
     source,start,step,parent=verified_source(source_work,core,base,diagnostic_g2)
+    pilot_from_g2=(source_work.resolve()==(base/"crossjob-fix-20261116/delta-continuation/trial-93674").resolve())
+    if pilot_from_g2 and (source_job!=93674 or windows!=20 or diagnostic_g2):
+        raise RuntimeError("G3_LONGER_PILOT_ONLY_20_WINDOWS_AFTER_93674")
     if diagnostic_g2 and (windows!=2 or source_job!=92479):
         raise RuntimeError("G2_EXPERIMENT_CANNOT_BECOME_LONG_PRODUCTION")
     if work.exists():
@@ -373,7 +393,10 @@ def run_trial(base,source_work,work,windows,core_path,source_job,diagnostic_g2=F
         "G2_DIAGNOSTIC_FAIL" if diagnostic_g2 else
         "DELTA_CONTINUATION_SHORT_STAGE_FAIL")
     if not diagnostic_g2 and ok:
-        verdict="DELTA_CONTINUATION_SHORT_STAGE_PASS"
+        verdict=("G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION" if pilot_from_g2
+                 else "DELTA_CONTINUATION_SHORT_STAGE_PASS")
+    if pilot_from_g2 and not ok:
+        verdict="G3_PILOT_20_WINDOW_FAIL"
     report={
         "status":verdict,
         "parent_source":str(source_work),
@@ -383,10 +406,11 @@ def run_trial(base,source_work,work,windows,core_path,source_job,diagnostic_g2=F
         "first_native_meshco_vs_91543":first_meshco,
         "exception":error,
         "diagnostic_g2_only":diagnostic_g2,
+        "g3_pilot_after_g2":pilot_from_g2,
         "native_mechanical_pass":native_ok,
         "original_strict_1pct_science_pass":strict_ok,
         "bounded_2pct_diagnostic_pass":bounded_ok,
-        "production_approved":False if diagnostic_g2 else strict_ok,
+        "production_approved":False if (diagnostic_g2 or pilot_from_g2) else strict_ok,
         "NEVER_AUTO_QUEUE_NEXT_STAGE":True,
     }
     if work.is_dir():
@@ -463,6 +487,9 @@ def main():
     os.environ["FSI_DELTA_CORE_PATH"]=str(core_path)
     core=load_core(core_path)
     source_work=args.source_work.expanduser().resolve(strict=True)
+    if source_work==(base/"crossjob-fix-20261116/delta-continuation/trial-93674").resolve() and (
+        args.windows!=20 or args.source_job!=93674 or args.diagnostic_g2):
+        p.error("93674 may seed only the 20-window nonproduction G3 pilot")
     if args.diagnostic_g2 and (args.windows!=2 or args.source_job!=92479):
         p.error("--diagnostic-g2 requires exactly 2 windows from job 92479")
     source,start,step,outcome=verified_source(source_work,core,base,args.diagnostic_g2)
