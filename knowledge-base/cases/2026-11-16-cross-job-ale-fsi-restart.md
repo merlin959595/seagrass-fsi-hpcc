@@ -1,6 +1,6 @@
 # 案例｜2026-11-16～17 三维海草 ALE–FSI 跨 Slurm 作业续算
 
-**最新状态（2026-11-18）：G0 92264 两窗口 PASS；G1 92479 原生计算与全部 20 个已接受窗口、8 个 MPI 和结构检查点通过独立审计，但严格 1% Fx 判据仍 FAIL（最大 1.025275%）；G2 93674 真实完成 2/2 窗口、两参与者退出码零、网格 PASS，并且本段严格 1% 科学对照 PASS（最大 Fx 误差 0.052377%）。G2 仍标记 `G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION`，`production_approved=false`；长程自动接力尚未放行。**
+**最新状态（2026-11-18）：G0 92264 两窗口严格 PASS；G1 92479 原生 20 窗口及检查点经独立审计 PASS，但原定 1% Fx 判据仍 FAIL（最大 1.025275%）；G2 93674 两窗口原生与本段严格科学对照均 PASS，报告仍为诊断性非生产；G3 93691 已通过固定源码哈希、21 个连续参考数据点及检查点预检，成功提交 Slurm 20 窗口非生产试验（物理时间 0.0355→0.0380 s），尚待实际运行与数值验收。自动长程接力未放行。**
 
 ## 1. 模型与运行环境
 
@@ -321,6 +321,36 @@ curl: (22) The requested URL returned error: 503
 诊断：来源 G2 和不中断参考数据覆盖检查均 PASS；失败发生于下载固定源码的 `curl` 环节，**尚未进入下游 `sbatch`**，无新的 G3 Slurm 作业号。HTTP 503 是文件获取故障，不能当作 FSI 求解或 ALE 失效。已准备隔离恢复方案：下载使用有限次重试和备用 GitHub 端点；对固定 `49bb2e5...` 提交的四个源码文件硬编码真实 Git blob SHA-1，任何已缓存或新下载源码均须校验内容一致，缓存有效可直接复用，缓存不匹配会停止而非覆盖，双端点都不可用则停止不提交。
 
 修复文件：[G3 带网络恢复和校验的入口](../../hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh)。这次仅改变下载可靠性，未改网格、物性、耦合算法或已有结果；应下载修复后的入口并重新执行 `--submit`，观察 `SUBMITTED_SINGLE_SHORT_DELTA_JOB` 确定真正成功提交，不能从预检通过自行推断作业已经提交。
+
+## 6.9 G3 503 重试恢复成功，已提交 Slurm 93691（2026-11-18）
+
+用户在 HPCC 登录节点重新运行修复后的 G3 提交入口，终端证据如下：
+
+```text
+G2_93674_NATIVE_AND_STRICT_SCIENCE_PASS: True
+G1_ORIGINAL_SCIENTIFIC_FAIL_RETAINED: DELTA_CONTINUATION_SHORT_STAGE_FAIL
+G3_REFERENCE_COVERAGE_PASS 21 consecutive reference samples
+PINNED_CACHED_FILE_VERIFIED: delta-continuation.py
+PINNED_CACHED_FILE_VERIFIED: run-delta-continuation-container.sh
+FETCH_PINNED: submit-delta-continuation-short.sh
+DOWNLOADED_PINNED_SHA_VERIFIED: submit-delta-continuation-short.sh
+FETCH_PINNED: segment.py
+curl: (22) The requested URL returned error: 503
+DOWNLOADED_PINNED_SHA_VERIFIED: segment.py
+DELTA_CONTINUATION_SHORT_STAGE_OFFLINE_SELFTEST_PASS
+DELTA_CONTINUATION_PREFLIGHT_PASS source .../trial-93674 from 0.0355 to 0.038
+    structural_restart_step 6 windows 20 diagnostic_g2_only False NO_SBATCH_NO_SOURCE_WRITES
+SUBMITTED_SINGLE_SHORT_DELTA_JOB=93691
+REPORT=/home/mc55028/hpcc-fsi/crossjob-fix-20261116/delta-continuation/trial-93691/DELTA_CONTINUATION_RESULT.json
+G2_DIAGNOSTIC_ONLY=0
+G3_20_WINDOW_PILOT_ONLY=1
+NO_AUTO_CHAIN_NO_LONG_PRODUCTION
+G3_PILOT_ONLY_NO_LONG_PRODUCTION_NO_AUTO_CHAIN
+```
+
+这次 GitHub HTTP 503 后通过**限定次数的网络重试**恢复，另有两份旧缓存通过固定 Git blob SHA 校验，四个固定计算脚本均被验证；预检、参考覆盖与来源通过，Slurm **确认提交 93691**。这证明网络错误恢复逻辑在真实环境中生效，并不证明 G3 的 20 个 FSI 时间窗口已经完成。
+
+下一步只读检查作业 `93691` 的 `squeue`/`sacct`，以及其隔离目录中的 `STATE.json`、原生 `FSI_SEGMENT_RESULT.json`、`DELTA_CONTINUATION_RESULT.json`、首个 MeshCo 与接受积分。G3 只能在所有 20 个窗口、原生检查与同时间 Fx/Delta0/Delta2 各 ≤1% 的科学对照全部 PASS 时标记 `G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION`。不许默认继续自动长程链。
 
 ## 7. 只读证据与公开源码
 
