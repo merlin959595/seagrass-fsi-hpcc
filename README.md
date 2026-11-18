@@ -6,7 +6,7 @@ Cloud-build a Linux AMD64 container for the University of Macau HPCC.
 
 跨 Slurm 作业双向 FSI 续算等复杂问题的长期经验集中保存在 [knowledge-base](knowledge-base/README.md)。当前最重要的案例是 [2026-11-16 海草 ALE–FSI 跨作业重启事故与修复验收](knowledge-base/cases/2026-11-16-cross-job-ale-fsi-restart.md)，可复用流程见 [增量位移接续 SOP](knowledge-base/playbooks/delta-fsi-continuation.md)。
 
-**最新状态（2026-11-18）：** 92264 两窗口 G0 已 PASS；92479 已完成 G1 的 20 窗口科学对照，但最大 Fx 误差 **1.025275%** 略超原 1% 门槛，因此原报告仍是 **FAIL**。Delta0/Delta2 及首次 Mesh Courant 对照接近正常。新增 [G1 原生只读独立审核](hpcc/restart-forensics/audit-g1-92479-for-g2.py) 和 [最多两个窗口的 G2 诊断接续](hpcc/restart-forensics/prepare-and-submit-g2-92479.sh)；不修改原报告、不启动自动长程生产。
+**最新状态（2026-11-18）：** 92264 两窗口 G0 严格 PASS；92479 G1 原生 20 窗口 PASS，但最大 Fx 差异 **1.025275%**，原定严格 1% 判据仍 FAIL；93674 G2 又经新的独立 Slurm 作业完成 2/2 窗口，原生 PASS、Fx 最大误差 **0.052377%**，本段严格科学对照 PASS。G2 报告保留 `G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION` 和 `production_approved=false`。已经准备 [从 G2 93674 接 20 窗口的独立延长试验](hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh)；仍不自动开启长程生产。
 
 ## Target versions
 
