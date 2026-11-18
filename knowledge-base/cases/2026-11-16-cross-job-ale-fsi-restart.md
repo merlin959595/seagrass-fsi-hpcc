@@ -407,6 +407,28 @@ production_approved: false
 
 仍然**不改写 G1 92479 的历史 FAIL**，亦不将 G3 的非生产 `production_approved:false` 改成 true。下一阶段应设计受控的 **80 窗口 G4（物理 0.038→0.048 s）**，必须先核实 91543 参考覆盖、全部 8 MPI 检查点、CalculiX 下一个 restart step=7、网格和接口协议；不同于已验证的 20 窗口，长段还需新的真实运行证据才能判定安全。
 
+## 6.13 正式目标纠正：保留 91543 完整三天历史，从其实际最终检查点继续（2026-11-19）
+
+**用户明确纠正此前口头“3 小时”为“三天”。** 原来的 `91006` 是独立已结束早期算例，`93691` 是验证了增量耦合稳定性的独立 G3 分支；真正需要从终态继续的三天长程算例是 **`91543`**。
+
+### 已知与未知必须分开
+
+- 已知 `91543` 是连续运行的长程 FSI 作业，使用 **绝对 `Displacement`** 接口；现有取证能确认其通过至少 `0.038 s`，但**没有真实 91543 最终 8-rank 检查点或最后接受的 watch 与终态时间**，所以不得冒称其已经完成 `0.1625 s` 或其他时间。
+- `92264`、`93674`、`93691` 实际证明：从旧绝对位移源通过严格原始参考坐标和 `DisplacementDelta` 方法能够跨 Slurm 进程接续并获得受力/Delta 对照。但这不能自动证明将该方案应用于一个更晚的 `91543` 末态一定等价。
+- 三天作业只有在 `squeue` 不再显示该作业、8 个 MPI 流体保存时间相同、结构最新已接受时间与保存流体时刻相同、结构持久化检查点与原始参考网格存在时，才有资格开始私有副本续算。
+
+### 已实现的备份优先接续入口
+
+- [真实三天计算末态只读审计](../../hpcc/three-day-resume/inspect-91543.py)：输出 8 个 MPI 终态时间、末条结构 accepted watch 物理时间、结构 restart step、完整 `.rout`、`kinematic_state.bin` 与原来 absolute 协议；
+- [全量原始 91543 SHA-256 备份](../../hpcc/three-day-resume/backup-91543-full.py)：对整个 `three-day-proven/long-job-91543` 递归复制，不裁剪日志/网格/时间目录；前后源文件、备份文件 SHA256 逐一核对，只有完全一致才产生 `FULL_THREE_DAY_91543_BACKUP_SHA256_VERIFIED` 终态；
+- [独立副本中的已验证 Absolute→Delta 协议转换及延续](../../hpcc/three-day-resume/resume-91543-delta.py)：复用先前第一轮成功 `try-incremental-displacement-restart.py` 内的 `patch_foam`、`patch_xml`、`patch_solid_yaml`，只修改新作业拷贝，不写原始 91543；后续已是增量协议时原样继承；
+- [Slurm 备份后接续提交器](../../hpcc/three-day-resume/submit-91543-continuation.py)：先提交整个 91543 的完整备份 Slurm 作业，再以 `afterok` 依赖自动排队后续最长 72 小时的独立续算段，来源为上一已通过原生网格、双参与者退出码及已接受力/位移增量的检查点；失败则阻断后续；
+- [冻结下载和一次性入口](../../hpcc/three-day-resume/backup-and-continue-91543.sh)：默认 `--inspect` 仅报告，`--submit` 才提交备份与续算链；每个源码文件都核对固定的 Git blob hash。
+
+**物理校验边界**：从 `91543` 自己的末态继续，未来时间没有另一条不中断真实参考轨迹，不能伪造“对照 91543 的 1% 误差”。可检查的是 native ALE 负体积/面错误、meshCo/Co、收敛窗口数、两参与者退出码、连续初始受力、有限的 Delta 和结构/流体检查点；论文中的真实性仍需独立物理收敛与网格/时间步研究。任何新原生失败都会停止自动接力。
+
+**重要**：先前为误听“三小时”而新写的 `hpcc/production/backup-and-continue-from-93691.sh` 不符合当前用户目标，不得执行。原 91543 数据与完整备份均不应因为另一起作业失败被覆盖或清理。现在尚未取得真实源末态时间、未确认 91543 完整备份成功、也尚未获得新的 Slurm 提交号，不得声称三天后续作业已启动。
+
 ## 7. 只读证据与公开源码
 
 - [原取证详细记录](../../hpcc/restart-forensics/OUR-RESTART-FIX-20261116.md)
