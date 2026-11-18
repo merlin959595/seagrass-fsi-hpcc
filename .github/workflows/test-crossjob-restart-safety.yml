@@ -59,6 +59,25 @@ jobs:
           assert "G2_DIAGNOSTIC" in r
           print("G2_DIAGNOSTIC_SAFETY_GATES_OFFLINE_PASS")
           PY_DIAG
+      - name: G3 93674-to-20-window nonproduction pilot guardrails
+        run: |
+          bash -n hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh
+          python3 -m py_compile hpcc/restart-forensics/delta-continuation.py
+          python3 hpcc/restart-forensics/delta-continuation.py --self-test
+          python3 - <<'PY_PILOT'
+          from pathlib import Path
+          d=Path("hpcc/restart-forensics/delta-continuation.py").read_text()
+          b=Path("hpcc/restart-forensics/submit-delta-continuation-short.sh").read_text()
+          p=Path("hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh").read_text()
+          assert "G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION" in d
+          assert "G3_PILOT_ONLY_20_WINDOWS_FROM_93674" in d
+          assert 'marker.get("original_strict_1pct_science_pass") is True' in d
+          assert "G3_20_WINDOW_PILOT_ONLY" in b
+          assert "FSI_DELTA_G3_PILOT" in p
+          assert "NO_AUTO_CHAIN_NO_LONG_PRODUCTION" in b
+          assert 'if [[ "$ACTION" == "--preflight" ]]' in p
+          print("G3_NONPRODUCTION_STRICT_SCIENCE_PILOT_OFFLINE_PASS")
+          PY_PILOT
       - name: Read-only available ALE snapshot audit self-test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
