@@ -110,6 +110,32 @@ jobs:
           assert 'no_reference_extrapolation' in s
           print('BACKUP_FIRST_STRICT_SCIENCE_3H_SLURM_CHAIN_OFFLINE_PASS')
           PY_PRODUCTION
+      - name: Three-day 91543 exact checkpoint full-backup and Delta continuation offline validation
+        run: |
+          python3 -m py_compile hpcc/three-day-resume/inspect-91543.py hpcc/three-day-resume/backup-91543-full.py hpcc/three-day-resume/resume-91543-delta.py hpcc/three-day-resume/submit-91543-continuation.py
+          bash -n hpcc/three-day-resume/run-91543-continuation-container.sh
+          python3 hpcc/three-day-resume/resume-91543-delta.py --self-test
+          python3 - <<'PY_3DAY'
+          from pathlib import Path
+          i=Path('hpcc/three-day-resume/inspect-91543.py').read_text()
+          b=Path('hpcc/three-day-resume/backup-91543-full.py').read_text()
+          d=Path('hpcc/three-day-resume/resume-91543-delta.py').read_text()
+          q=Path('hpcc/three-day-resume/submit-91543-continuation.py').read_text()
+          r=Path('hpcc/three-day-resume/run-91543-continuation-container.sh').read_text()
+          assert 'checkpoint_time_matches_latest_accepted_watch' in i
+          assert 'last_complete_MPI_fluid_time_s' in i
+          assert 'source=source_work' in d and 'original_seed' in d
+          assert 'patch.patch_xml(' in d and 'patch.patch_foam(' in d and 'patch.patch_solid_yaml(' in d
+          assert 'NO_FUTURE_UNINTERRUPTED_REFERENCE' in d
+          assert 'PASS_NATIVE_CONTINUITY_NO_FUTURE_REFERENCE' in d
+          assert 'FULL_THREE_DAY_91543_BACKUP_SHA256_VERIFIED' in b
+          assert 'before!=after_copy' in b and 'before!=after_source' in b
+          assert 'FULL_91543_BACKUP_VERIFIED_BEFORE_COMPUTE' in r
+          assert '--dependency=afterok:' in q
+          assert 'source_inactive' in q
+          assert 'THREE_DAY_91543_CONTINUATION_PLAN' in q
+          print('THREE_DAY_ORIGINAL_IMMUTABLE_BACKUP_AND_DELTA_AFTEROK_CHAIN_OFFLINE_PASS')
+          PY_3DAY
       - name: Read-only available ALE snapshot audit self-test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
