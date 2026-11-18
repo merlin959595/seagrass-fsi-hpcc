@@ -45,9 +45,14 @@ def call(cmd):
     return p.stdout.strip()
 
 def source_inactive():
-    # Accounting database (sacct) can be down; squeue is the scheduler truth.
-    result=call(["squeue","-h","-j","91543","-o","%j|%T|%N"])
-    if result:fail("ORIGINAL_91543_STILL_ACTIVE_DO_NOT_BACKUP_MOVING_SOURCE: "+result)
+    # sacct may be down; list ACTIVE jobs by user rather than querying a
+    # completed job ID (which can yield "Invalid job id specified").
+    user=os.environ.get("USER")
+    if not user:fail("USER_ENV_MISSING")
+    result=call(["squeue","-h","-u",user,"-o","%i|%T|%N"])
+    for item in result.splitlines():
+        if item.split("|",1)[0].strip()=="91543":
+            fail("ORIGINAL_91543_STILL_ACTIVE_DO_NOT_BACKUP_MOVING_SOURCE: "+item)
 
 def plan(start,accepted_count,extension):
     if not 0<extension<=.5:
