@@ -39,6 +39,27 @@ print("G2_93674_NATIVE_AND_STRICT_SCIENCE_PASS:",must)
 print("G1_ORIGINAL_SCIENTIFIC_FAIL_RETAINED:",g1.get("status"))
 if not must:raise SystemExit("BLOCKED: G2 and original G1 reports inconsistent")
 PY
+echo "===== 91543 reference coverage for future 20 windows ====="
+python3 - "$BASE" <<'PY_REFERENCE'
+from pathlib import Path
+import sys,math
+ref=(Path(sys.argv[1])/"three-day-proven/long-job-91543/runs/hpcc-implicit-002/solid/"
+     "precice-Solid-watchintegral-Interface-Integral.log")
+if not ref.is_file():raise SystemExit("BLOCKED: 91543 continuous watch missing")
+times=set()
+for line in ref.read_text(errors="replace").splitlines():
+    p=line.split()
+    if len(p)<7:continue
+    try:
+        vals=[float(x) for x in p[:7]]
+    except ValueError:continue
+    if all(math.isfinite(x) for x in vals):times.add(round(vals[0],9))
+need=[round(.0355 + i*.000125-.0025,9) for i in range(21)]
+missing=[x for x in need if x not in times]
+if missing:
+    raise SystemExit(f"BLOCKED: 91543 lacks {len(missing)} G3 reference checkpoints; first missing rel t={missing[0]}")
+print("G3_REFERENCE_COVERAGE_PASS",len(need),"consecutive reference samples")
+PY_REFERENCE
 mkdir -p "$CODE"
 for spec in \
  "hpcc/restart-forensics/delta-continuation.py:delta-continuation.py" \
