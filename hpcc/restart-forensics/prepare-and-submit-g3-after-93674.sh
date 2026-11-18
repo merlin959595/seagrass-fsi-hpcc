@@ -61,27 +61,53 @@ if missing:
 print("G3_REFERENCE_COVERAGE_PASS",len(need),"consecutive reference samples")
 PY_REFERENCE
 mkdir -p "$CODE"
+# Pin all four exact Git blob SHA-1 values to the already reviewed REV.
+# Reuse only byte-for-byte verified files from a previous interrupted attempt.
+git_blob_sha1() {
+  python3 - "$1" <<'PY_BLOB'
+import hashlib,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+b=p.read_bytes()
+print(hashlib.sha1(b"blob "+str(len(b)).encode()+b"\0"+b).hexdigest())
+PY_BLOB
+}
 for spec in \
- "hpcc/restart-forensics/delta-continuation.py:delta-continuation.py" \
- "hpcc/restart-forensics/run-delta-continuation-container.sh:run-delta-continuation-container.sh" \
- "hpcc/restart-forensics/submit-delta-continuation-short.sh:submit-delta-continuation-short.sh" \
- "hpcc/clean-production/segment.py:segment.py";do
-  remote="${spec%%:*}"
-  name="${spec##*:}"
+ "hpcc/restart-forensics/delta-continuation.py:delta-continuation.py:34d214a58fea571b0fa86facf9e163b1a1c4274c" \
+ "hpcc/restart-forensics/run-delta-continuation-container.sh:run-delta-continuation-container.sh:6fe3f7169a6bd6a4dd08e026a71b0be6bcb355ea" \
+ "hpcc/restart-forensics/submit-delta-continuation-short.sh:submit-delta-continuation-short.sh:d860072b83b7ea3e17cddfcbbeda7c4fa9fd1a93" \
+ "hpcc/clean-production/segment.py:segment.py:15a219c75a7e417d707549c2a0e46bbebd761d19";do
+  IFS=: read -r remote name expected_sha <<< "$spec"
+  dest="$CODE/$name"
+  if [[ -e "$dest" ]];then
+    if [[ ! -f "$dest" || "$(git_blob_sha1 "$dest")" != "$expected_sha" ]];then
+      echo "BLOCKED: existing pinned file failed SHA-1 check: $dest" >&2
+      exit 4
+    fi
+    echo "PINNED_CACHED_FILE_VERIFIED: $name"
+    continue
+  fi
   tmp="$(mktemp "$CODE/tmp.XXXXXXXX")"
   trap 'rm -f "$tmp"' EXIT
-  curl -fLsS "$RAW/$remote" -o "$tmp"
-  if [[ -f "$CODE/$name" ]];then
-    cmp -s "$CODE/$name" "$tmp" || {
-      echo "BLOCKED: pinned code hash changed; refusing to overwrite $CODE/$name" >&2
-      exit 4
-    }
-    rm -f "$tmp"
-  else
-    mv "$tmp" "$CODE/$name"
+  echo "FETCH_PINNED: $name"
+  if ! curl -fLsS --retry 5 --retry-delay 2 --retry-all-errors \
+       --connect-timeout 15 --max-time 45 "$RAW/$remote" -o "$tmp";then
+    echo "Raw GitHub unavailable; trying alternate GitHub endpoint" >&2
+    if ! curl -fLsS --retry 5 --retry-delay 2 --retry-all-errors \
+         --connect-timeout 15 --max-time 45 \
+         "https://github.com/merlin959595/seagrass-fsi-hpcc/raw/$REV/$remote" -o "$tmp";then
+      echo "BLOCKED: both GitHub download endpoints failed for $name; NO SBATCH" >&2
+      exit 5
+    fi
   fi
+  if [[ "$(git_blob_sha1 "$tmp")" != "$expected_sha" ]];then
+    echo "BLOCKED: pinned source SHA-1 mismatch for $name; NO SBATCH" >&2
+    exit 6
+  fi
+  mv "$tmp" "$dest"
+  trap - EXIT
+  echo "DOWNLOADED_PINNED_SHA_VERIFIED: $name"
 done
-trap - EXIT
 export FSI_DELTA_SCRIPT="$CODE/delta-continuation.py"
 export FSI_DELTA_CORE="$CODE/segment.py"
 export FSI_DELTA_RUNNER="$CODE/run-delta-continuation-container.sh"
