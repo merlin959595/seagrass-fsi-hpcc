@@ -86,6 +86,30 @@ jobs:
           assert 'if [[ "$ACTION" == "--preflight" ]]' in p
           print("G3_NONPRODUCTION_STRICT_SCIENCE_PILOT_OFFLINE_PASS")
           PY_PILOT
+      - name: Three-hour real continuation backup and Slurm-chain offline code validation
+        run: |
+          python3 -m py_compile hpcc/production/delta-production-3h.py hpcc/production/backup-before-3h.py hpcc/production/submit-3h-continuation.py
+          bash -n hpcc/production/run-production-3h-container.sh hpcc/production/backup-and-continue-from-93691.sh
+          python3 hpcc/production/delta-production-3h.py --self-test
+          python3 - <<'PY_PRODUCTION'
+          from pathlib import Path
+          d=Path('hpcc/production/delta-production-3h.py').read_text()
+          b=Path('hpcc/production/backup-before-3h.py').read_text()
+          s=Path('hpcc/production/submit-3h-continuation.py').read_text()
+          r=Path('hpcc/production/run-production-3h-container.sh').read_text()
+          assert 'G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION' in d
+          assert 'LONG_CHAIN_SEGMENT_PASS' in d
+          assert 'PARENT_STRICT_1PCT_SCIENCE_REVALIDATION_FAIL' in d
+          assert 'scienti' in d and 'scientific_gate' in d
+          assert 'FIRST_PRODUCTION_PARENT_JOB_MISMATCH' in d
+          assert 'BACKUP_COMPLETE_SHA256_VERIFIED' in b and 'BACKUP_MANIFEST_MISMATCH' in b
+          assert 'afterok:' in s and 'BACKUP_MUST_COMPLETE_SHA256_BEFORE_FIRST_COMPUTE' in s
+          assert 'FULL_THREE_HOUR_AND_LINEAGE_BACKUP_VERIFIED' in r
+          assert 'PRODUCTION_NATIVE_OR_1PCT_SCIENCE_FAIL' in s
+          assert 'SOURCE_93691_WRONG_TIME_OR_SOLID_RESTART_STEP' in s
+          assert 'no_reference_extrapolation' in s
+          print('BACKUP_FIRST_STRICT_SCIENCE_3H_SLURM_CHAIN_OFFLINE_PASS')
+          PY_PRODUCTION
       - name: Read-only available ALE snapshot audit self-test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
