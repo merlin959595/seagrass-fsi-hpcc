@@ -1,6 +1,6 @@
 # 案例｜2026-11-16～17 三维海草 ALE–FSI 跨 Slurm 作业续算
 
-**最新状态（用户 2026-11-19 提供的 HPCC 日志）：G0 92264 两窗口严格 PASS；G1 92479 原生 20 窗口和检查点独立审计 PASS，但原定 1% Fx 判据仍 FAIL（最大 1.025275%）；G2 93674 两窗口原生和本段严格科学对照 PASS，仍标记非生产；G3 93691 已有全部 20/20 个时间点的 Fx 对照，最大差异 0.054976%（通过原定 1% Fx 门槛），但完整原生完成报告与 Delta0/Delta2 科学对照尚未由用户提供，故 G3 总体验收仍待确认。长程自动接力未放行。**
+**最新状态（2026-11-19）：G0 92264 两窗口严格 PASS；G1 92479 原生 20 窗口及检查点独立审计 PASS，但历史 1% Fx 判据仍 FAIL（最大 1.025275%）；G2 93674 两窗口原生和本段严格科学对照 PASS；G3 93691 实际完成全部 20/20 窗口，原生 `FSI_LONG_SEGMENT_PASS`，两参与者退出码均 0、终态网格 PASS，严格 Fx/Delta0/Delta2 科学验收全部 PASS。G3 正式状态 `G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION`、`production_approved=false`。接下来可准备 G4 80 窗口独立验证，但自动长程生产仍未放行。**
 
 ## 1. 模型与运行环境
 
@@ -381,6 +381,31 @@ DELTA_CONTINUATION_RESULT.json: 尚未生成
 ```
 
 该 `awk` 使用时间偏移 `0.033 s`（G3 起点物理 0.0355，参考作业原点 0.0025），按相对时间 9 位小数匹配，展示本段已接受 Force0 相对误差最大约 `5.4976e-4`。对 20 个点按原定 1% **Fx** 指标观察，全部满足。本结果**不是最终报告**，不包含 Delta0、Delta2 或全程 mesh guard/原生退出码/最终 CheckMesh 的直接验收证据，不可自行宣告 `G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION`。需要读取 `trial-93691/FSI_SEGMENT_RESULT.json` 与 `DELTA_CONTINUATION_RESULT.json` 核查全套 PASS 后，才能开始下阶段长段生产级验证；尤其原 G1 的 1.025275% 超限仍需保留。
+
+## 6.12 G3 作业 93691 正式原生及严格科学验收通过（2026-11-19）
+
+用户从 HPCC 源文件直接读取如下最终报告，而非仅凭之前的 awk 对照：
+
+```text
+native status: FSI_LONG_SEGMENT_PASS
+accepted_windows: 20
+participant_exit_codes: {"fluid":0,"solid":0}
+native_terminal_mesh.status: PASS
+native_terminal_mesh.max_nonorthogonality_deg: null
+scientific_vs_91543.status: PASS
+max_Fx_relative_error: 0.0005497641496844777  (0.05497641496844777%)
+max_delta0_relative_error: 5.1779075974898424e-05 (0.005177907597489842%)
+max_delta2_relative_error: 0.0007981449629633493 (0.07981449629633493%)
+DELTA_CONTINUATION_RESULT.status: G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION
+exception: null
+production_approved: false
+```
+
+这证实了 G3 整个 20 窗口区间 `0.0355→0.0380 s` 的真实 FSI、终态网格与逐窗科学对照通过。并未给出最大非正交角的数值（JSON 为 null），不可自行推断。
+
+`sacct -j 93691` 在登录节点返回 `localhost:6819 Connection refused`，这是 Slurm 记账数据库连接异常，不等于作业 FAILED；因此目前不能声称已核实 SlurmDB 的 `COMPLETED` 记账状态。原生两个参与者退出码均为 0 及 FSI 官方原生日志是独立的计算结果证据。
+
+仍然**不改写 G1 92479 的历史 FAIL**，亦不将 G3 的非生产 `production_approved:false` 改成 true。下一阶段应设计受控的 **80 窗口 G4（物理 0.038→0.048 s）**，必须先核实 91543 参考覆盖、全部 8 MPI 检查点、CalculiX 下一个 restart step=7、网格和接口协议；不同于已验证的 20 窗口，长段还需新的真实运行证据才能判定安全。
 
 ## 7. 只读证据与公开源码
 
