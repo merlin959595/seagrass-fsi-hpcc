@@ -298,6 +298,15 @@ G2 原报告是 **`G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION`**，同时包含 `
 
 计算耗时：`wall_s=369.571` s，约 **184.786 s/窗口**；不是完整长期生产效率。原生数值的 `scientific_two_periods_verified=false` 指未验证两个湿动力振荡周期，不能与已经接受两个 preCICE 窗口混淆。
 
+## 6.7 后续接力配置：G3 从 93674 再接 20 窗口（仅准备，未提交）
+
+依据 93674 的真实原生与严格 1% 科学对照双 PASS，已配置新隔离的 **G3 20 窗口延长验证**：源物理时间 `0.035500 s`，目标 `0.038000 s`，下一 CalculiX `READ STEP=6`，仍为 8 流体 MPI + 4 结构 OMP、`dt=0.000125 s`、原几何/物性及 `DisplacementDelta` 协议。
+
+- [G3 准备及受控提交入口](../../hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh) 默认为 `--preflight`，仅检查真实 `93674` 源报告与 8 MPI/结构检查点、源 Delta/Fx 数据、原始 G1 FAIL 状态；还需确认连续 `91543` 已接受日志具有下一段 20 窗口全部 21 个相对时间匹配点。缺失一项则拒绝提交。
+- 新增量续算驱动 [delta-continuation.py](../../hpcc/restart-forensics/delta-continuation.py) 只允许来自固定真实 G2 `trial-93674` 的 20 窗口非生产验证，逐窗口继续严格 Fx、Delta0、Delta2 各不超过 1%，不复用 G2 的 2% 宽松诊断边界。
+- 通过时只能写 `G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION` 且 `production_approved=false`；失败则写 `G3_PILOT_20_WINDOW_FAIL`。不能自动提交 G4 或三天长期链，不能覆写此前 `91006`、`91543`、`92264`、`92479`、`93674`。
+- 现阶段没有 G3 Slurm 作业号或真实运行结果，故本段**尚未启动**。一切新结论必须等待原生 FSI 和逐窗科学验收。
+
 ## 7. 只读证据与公开源码
 
 - [原取证详细记录](../../hpcc/restart-forensics/OUR-RESTART-FIX-20261116.md)
