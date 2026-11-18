@@ -307,6 +307,21 @@ G2 原报告是 **`G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION`**，同时包含 `
 - 通过时只能写 `G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION` 且 `production_approved=false`；失败则写 `G3_PILOT_20_WINDOW_FAIL`。不能自动提交 G4 或三天长期链，不能覆写此前 `91006`、`91543`、`92264`、`92479`、`93674`。
 - 现阶段没有 G3 Slurm 作业号或真实运行结果，故本段**尚未启动**。一切新结论必须等待原生 FSI 和逐窗科学验收。
 
+## 6.8 G3 首次提交尝试遇到 GitHub HTTP 503（2026-11-18）
+
+用户用 `prepare-and-submit-g3-after-93674.sh --submit` 进行 G3 提交前检查，HPCC 实际输出：
+
+```text
+G2_93674_NATIVE_AND_STRICT_SCIENCE_PASS: True
+G1_ORIGINAL_SCIENTIFIC_FAIL_RETAINED: DELTA_CONTINUATION_SHORT_STAGE_FAIL
+G3_REFERENCE_COVERAGE_PASS 21 consecutive reference samples
+curl: (22) The requested URL returned error: 503
+```
+
+诊断：来源 G2 和不中断参考数据覆盖检查均 PASS；失败发生于下载固定源码的 `curl` 环节，**尚未进入下游 `sbatch`**，无新的 G3 Slurm 作业号。HTTP 503 是文件获取故障，不能当作 FSI 求解或 ALE 失效。已准备隔离恢复方案：下载使用有限次重试和备用 GitHub 端点；对固定 `49bb2e5...` 提交的四个源码文件硬编码真实 Git blob SHA-1，任何已缓存或新下载源码均须校验内容一致，缓存有效可直接复用，缓存不匹配会停止而非覆盖，双端点都不可用则停止不提交。
+
+修复文件：[G3 带网络恢复和校验的入口](../../hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh)。这次仅改变下载可靠性，未改网格、物性、耦合算法或已有结果；应下载修复后的入口并重新执行 `--submit`，观察 `SUBMITTED_SINGLE_SHORT_DELTA_JOB` 确定真正成功提交，不能从预检通过自行推断作业已经提交。
+
 ## 7. 只读证据与公开源码
 
 - [原取证详细记录](../../hpcc/restart-forensics/OUR-RESTART-FIX-20261116.md)
