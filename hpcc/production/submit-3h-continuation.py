@@ -227,7 +227,7 @@ def plan_or_submit(args):
     body=("#!/usr/bin/env bash\nset -euo pipefail\n"
           f"python3 {shlex.quote(str(backup_script))} --base {shlex.quote(str(base))}"
           f" --backup-root {shlex.quote(str(backup_root))}\n")
-    write_executable(backup_batch,body.replace("\\\n","\n"))
+    write_executable(backup_batch,body)
     backup_id=sbatch(backup_batch,"fsi-backup3h","03:00:00",2,"8G",
                      log_dir/"backup-%j.out",log_dir/"backup-%j.err")
     print("FULL_BACKUP_JOB_SUBMITTED",backup_id,flush=True)
@@ -259,7 +259,7 @@ def plan_or_submit(args):
         command=(f"#!/usr/bin/env bash\nset -euo pipefail\n"
            f"python3 {shlex.quote(str(Path(__file__).resolve()))}"
            f" --run-one {shlex.quote(str(cfg))}\n")
-        write_executable(batch,command.replace("\\\n","\n"))
+        write_executable(batch,command)
         job=sbatch(batch,"fsi-prod3h","03:00:00",12,"24G",
                    log_dir/"production-%j.out",log_dir/"production-%j.err",
                    dep=last_id)
