@@ -8,6 +8,8 @@ JOB="$4"
 WORK="$5"
 WINDOWS="$6"
 PREV="$7"
+G2_DIAGNOSTIC="${8:-0}"
+AUDITOR="${9:-}"
 # Do not leak Python/bash paths into the OpenFOAM etc/bashrc.
 set --
 set +eu
@@ -27,6 +29,15 @@ test -x "$ROOT/scripts/native/bin/ccx_preCICE_persistent_v2"
 test -f "$ROOT/scripts/native/lib/libseagrassReferenceRestart.so"
 test -n "$JOB"
 export SLURM_JOB_ID="$JOB"
-python3 "$SCRIPT" --base "$HOME/hpcc-fsi" --core "$CORE" \
-  --source-work "$PARENT" --source-job "$PREV" \
-  --windows "$WINDOWS" --work "$WORK" --run
+export FSI_DELTA_CORE_PATH="$CORE"
+if [[ "$G2_DIAGNOSTIC" == "1" ]];then
+  test -s "$AUDITOR"
+  export FSI_G1_AUDITOR="$AUDITOR"
+  python3 "$SCRIPT" --base "$HOME/hpcc-fsi" --core "$CORE" \
+    --source-work "$PARENT" --source-job "$PREV" \
+    --windows "$WINDOWS" --work "$WORK" --diagnostic-g2 --run
+else
+  python3 "$SCRIPT" --base "$HOME/hpcc-fsi" --core "$CORE" \
+    --source-work "$PARENT" --source-job "$PREV" \
+    --windows "$WINDOWS" --work "$WORK" --run
+fi
