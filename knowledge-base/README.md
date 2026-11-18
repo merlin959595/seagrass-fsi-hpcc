@@ -6,6 +6,7 @@
 
 ## 分类目录
 
+- [**经验专栏 / Practical lessons**](experiences/README.md)：把真实修复结果提炼成可复用的技术经验。置顶：[三维海草 ALE–FSI 跨 Slurm 作业：增量位移修正、G0–G3 验收与三天 91543 全量备份续算交接](experiences/2026-11-19-seagrass-ale-fsi-restart-practice.md)。
 - [问题复盘 / Case studies](cases/2026-11-16-cross-job-ale-fsi-restart.md)：2026-11-16 三维海草 FSI 跨 Slurm 作业续算问题。保留时间线、失败方案、首次 ALE 偏差证据、增量耦合修复候选与验收情况。
 - [标准操作规程 / Playbooks](playbooks/delta-fsi-continuation.md)：未来类似流固耦合分段计算应如何审计、接续、验证和保护原有结果。
 - [案例模板](templates/incident-template.md)：以后每一次重要数值模拟/HPCC 故障或修复都按统一格式记录。
