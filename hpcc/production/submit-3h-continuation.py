@@ -224,10 +224,10 @@ def plan_or_submit(args):
     jobs_dir=output/"jobs"
     for d in (batch_dir,cfg_dir,log_dir,jobs_dir):d.mkdir()
     backup_batch=batch_dir/"backup-full-3h.sh"
-    body=("#!/usr/bin/env bash\\nset -euo pipefail\\n"
+    body=("#!/usr/bin/env bash\nset -euo pipefail\n"
           f"python3 {shlex.quote(str(backup_script))} --base {shlex.quote(str(base))}"
-          f" --backup-root {shlex.quote(str(backup_root))}\\n")
-    write_executable(backup_batch,body.replace("\\\\n","\\n"))
+          f" --backup-root {shlex.quote(str(backup_root))}\n")
+    write_executable(backup_batch,body.replace("\\\n","\n"))
     backup_id=sbatch(backup_batch,"fsi-backup3h","03:00:00",2,"8G",
                      log_dir/"backup-%j.out",log_dir/"backup-%j.err")
     print("FULL_BACKUP_JOB_SUBMITTED",backup_id,flush=True)
@@ -254,12 +254,12 @@ def plan_or_submit(args):
             config[key]=str(path)
             config[key+"_sha256"]=digest(path)
         cfg=cfg_dir/f"segment-{index:02d}.json"
-        cfg.write_text(json.dumps(config,indent=2,ensure_ascii=False)+"\\n")
+        cfg.write_text(json.dumps(config,indent=2,ensure_ascii=False)+"\n")
         batch=batch_dir/f"segment-{index:02d}.sh"
-        command=(f"#!/usr/bin/env bash\\nset -euo pipefail\\n"
+        command=(f"#!/usr/bin/env bash\nset -euo pipefail\n"
            f"python3 {shlex.quote(str(Path(__file__).resolve()))}"
-           f" --run-one {shlex.quote(str(cfg))}\\n")
-        write_executable(batch,command.replace("\\\\n","\\n"))
+           f" --run-one {shlex.quote(str(cfg))}\n")
+        write_executable(batch,command.replace("\\\n","\n"))
         job=sbatch(batch,"fsi-prod3h","03:00:00",12,"24G",
                    log_dir/"production-%j.out",log_dir/"production-%j.err",
                    dep=last_id)
@@ -274,7 +274,7 @@ def plan_or_submit(args):
         last_id=job
         start=ending
         (output/"CHAIN_SUBMISSION_RECORD.json").write_text(
-            json.dumps(log,indent=2,ensure_ascii=False)+"\\n")
+            json.dumps(log,indent=2,ensure_ascii=False)+"\n")
     print("ALL_3H_SEGMENTS_SCHEDULED_AFTER_FULL_BACKUP",
           "backup_job",backup_id,"final_job",last_id,"end_s",end,flush=True)
     print("BACKUP_MUST_COMPLETE_SHA256_BEFORE_FIRST_COMPUTE",str(backup_dest),flush=True)
