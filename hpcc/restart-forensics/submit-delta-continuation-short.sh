@@ -9,6 +9,7 @@ CORE="${FSI_DELTA_CORE:-$CODE/segment.py}"
 RUNNER="${FSI_DELTA_RUNNER:-$CODE/run-delta-continuation-container.sh}"
 AUDITOR="${FSI_G1_AUDITOR:-$CODE/audit-g1-92479-for-g2.py}"
 G2MODE="${FSI_DELTA_DIAGNOSTIC_G2:-0}"
+G3MODE="${FSI_DELTA_G3_PILOT:-0}"
 PARENT="${FSI_DELTA_SOURCE_WORK:-$CODE/delta-2window/trial-92264}"
 WINDOWS="${FSI_DELTA_WINDOWS:-20}"
 ACTION="${1:---preflight}"
@@ -26,8 +27,13 @@ if [[ "$PARENT" != "$BASE/"* || ! "$PARENT" =~ /trial-([0-9]+)$ ]];then
   exit 4
 fi
 PREV="${BASH_REMATCH[1]}"
-if [[ "$G2MODE" != "0" && "$G2MODE" != "1" ]];then
-  echo "Invalid G2MODE; only 0/1" >&2;exit 4
+if [[ "$G2MODE" != "0" && "$G2MODE" != "1" || "$G3MODE" != "0" && "$G3MODE" != "1" ]];then
+  echo "Invalid G2/G3 MODE; only 0/1" >&2;exit 4
+fi
+if [[ "$PREV" == "93674" || "$G3MODE" == "1" ]];then
+  if [[ "$PREV" != "93674" || "$WINDOWS" != "20" || "$G3MODE" != "1" || "$G2MODE" != "0" || "$PARENT" != "$CODE/delta-continuation/trial-93674" ]];then
+    echo "G3 pilot can only continue 20 windows from completed G2 job 93674; no production" >&2;exit 4
+  fi
 fi
 if [[ "$G2MODE" == "1" ]];then
   if [[ "$PREV" != "92479" || "$WINDOWS" != "2" || "$PARENT" != "$CODE/delta-continuation/trial-92479" ]];then
@@ -125,4 +131,5 @@ JOB="$(sbatch --parsable --partition=cpu --nodes=1 --ntasks=1 \
 echo "SUBMITTED_SINGLE_SHORT_DELTA_JOB=$JOB"
 echo "REPORT=$OUTROOT/trial-$JOB/DELTA_CONTINUATION_RESULT.json"
 echo "G2_DIAGNOSTIC_ONLY=$G2MODE"
+echo "G3_20_WINDOW_PILOT_ONLY=$G3MODE"
 echo "NO_AUTO_CHAIN_NO_LONG_PRODUCTION"
