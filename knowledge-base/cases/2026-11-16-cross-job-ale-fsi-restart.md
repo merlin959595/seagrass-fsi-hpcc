@@ -1,6 +1,6 @@
 # 案例｜2026-11-16～17 三维海草 ALE–FSI 跨 Slurm 作业续算
 
-**状态：G0（92264 两窗口）PASS；G1（92479 20 窗口）科学对照 FAIL，最大 Fx 误差 1.025275% 略高于原 1% 门槛。G1 原生结果须由独立只读审计核查，G2 仅允许独立两窗口诊断；长程自动接力未放行。** 用户提供了完整 G1 汇总输出，但未贴出原生 FSI_SEGMENT_RESULT.json 全部字段。不得擅自将 G1 原 FAIL 改写为 PASS，也不能从 GitHub CI 成功推断 HPCC 原生计算完成。
+**最新状态（2026-11-18）：G0 92264 两窗口 PASS；G1 92479 原生求解/全部 20 已接受窗口/结构和 8 个 MPI 检查点经独立只读审计 PASS，但原定 1% Fx 科学判据 FAIL（最大 1.025275%）；G2 93674 两窗口独立诊断已成功提交 Slurm，仍待运行和科学验收。不得标注长程自动接力获批。** 该结论来自用户提供的 HPCC 实际审计和提交日志，不是从 CI 自测推断的数值结果。
 
 ## 1. 模型与运行环境
 
@@ -207,6 +207,48 @@ G1: DELTA_CONTINUATION_SHORT_STAGE_FAIL
 **2% 并不是本轮回头修改的科学验收目标**，它只能放行一次“边缘误差是否会在下一次独立 Slurm 进程中继续扩大”的诊断试验。原来的 1% 仍标记 FAIL。G2 结果即使满足这项诊断防护，也只能写成 `G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION`，不能直接作为后续长程生产来源。
 
 后续生产需要建立正式的可重复性基线、并在至少一次再次跨作业试验后确定科学上可接受的力和位移误差；不可因改变判据而冒充严格验收成功。
+
+## 6.4 G1 独立原生审计 PASS；G2 诊断提交成功（2026-11-18）
+
+用户在 HPCC 执行固定版本的 `prepare-and-submit-g2-92479.sh --submit`，在提交前独立两次核验 G1：
+
+```text
+verdict=G1_NATIVE_PASS_G2_DIAGNOSTIC_ELIGIBLE_STRICT_SCIENCE_FAIL
+g2_diagnostic_eligible=true
+production_restart_approved=false
+original_G1_result_was_rewritten=false
+native_completed_successfully=true
+restored_step_and_delta_protocol=true
+initial_force_and_zero_delta_continuity=true
+first_ale_meshco_near_continuous=true
+all_twenty_same_physical_time_accepted=true
+strict_preexisting_1pct_scientific_gate=false
+diagnostic_only_2pct_Fx_0p5pct_delta_guardrail=true
+original_Fx_scientific_FAIL_preserved=true
+source_has_complete_8_rank_and_solid_checkpoint=true
+source_checkpoint_physical_time_verified=true
+native_status=FSI_LONG_SEGMENT_PASS
+max_Fx_relative=0.010252751525572316
+max_Delta0_relative=0.000054627645726802694
+max_Delta2_relative=0.0009584332019428214
+max_error_window=1, physical_t=0.032875
+```
+
+已通过来源检查：`0.03525 → 0.03550 s`、`structural_restart_step=5`、`windows=2`、`diagnostic_g2_only=True`。
+
+真实 Slurm 提交反馈：
+
+```text
+SUBMITTED_SINGLE_SHORT_DELTA_JOB=93674
+REPORT=/home/mc55028/hpcc-fsi/crossjob-fix-20261116/delta-continuation/trial-93674/DELTA_CONTINUATION_RESULT.json
+G2_DIAGNOSTIC_ONLY=1
+NO_AUTO_CHAIN_NO_LONG_PRODUCTION
+ORIGINAL_G1_SCIENTIFIC_FAIL_NOT_OVERWRITTEN
+```
+
+**解释**：这证实 92479 原生数值计算、20 个窗口的时刻匹配、源物理状态检查点及接口初始化通过独立审计。严格 1% 力误差的原始 G1 FAIL 依旧有效。G2 的状态仅是 **已提交**，尚未收到 Slurm RUNNING/COMPLETED、两个新接受窗口、首个 MeshCo 或最终 `DELTA_CONTINUATION_RESULT.json`，不能宣称 G2 PASS，更不能自动启动长程生产。
+
+**下一个安全操作**：读取 `squeue -j 93674`、`sacct -j 93674`，输出 `trial-93674/STATE.json`、`FSI_SEGMENT_RESULT.json`、`DELTA_CONTINUATION_RESULT.json` 以及对应 watchintegral 两行；只有原生/科学/网格/存档检查通过才安排下一生产级验证。
 
 ## 7. 只读证据与公开源码
 
