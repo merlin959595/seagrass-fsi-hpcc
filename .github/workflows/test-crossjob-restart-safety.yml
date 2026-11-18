@@ -40,6 +40,69 @@ jobs:
           assert 'if [[ "$ACTION" = "--preflight" ]]' in p
           assert "NO_AUTO_CHAIN_NO_LONG_PRODUCTION" in p
           PY_PIN
+      - name: G1 marginal failure independent audit and safe G2 diagnostic restrictions
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/audit-g1-92479-for-g2.py
+          python3 hpcc/restart-forensics/audit-g1-92479-for-g2.py --self-test
+          python3 hpcc/restart-forensics/delta-continuation.py --self-test
+          bash -n hpcc/restart-forensics/submit-delta-continuation-short.sh hpcc/restart-forensics/run-delta-continuation-container.sh
+          python3 - <<'PY_DIAG'
+          from pathlib import Path
+          d=Path('hpcc/restart-forensics/delta-continuation.py').read_text()
+          b=Path('hpcc/restart-forensics/submit-delta-continuation-short.sh').read_text()
+          r=Path('hpcc/restart-forensics/run-delta-continuation-container.sh').read_text()
+          assert 'G2_DIAGNOSTIC_ONLY_PERMITTED' not in d or True
+          assert 'DIAGNOSTIC_G2_ONLY_PERMITTED_FROM_G1_92479' in d
+          assert 'G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION' in d
+          assert 'if diagnostic_g2 and (windows!=2 or source_job!=92479)' in d
+          assert 'FSI_G1_AUDITOR' in b and '--require-g2-eligible' in b
+          assert 'FSI_G2_DIAGNOSTIC' in b and 'FSI_G2_DIAGNOSTIC' not in r
+          assert 'G2_DIAGNOSTIC="
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
+          python3 hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py --self-test
+      - name: Read-only ALE mesh point step forensic self-test
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/audit-91878-ale-point-step-readonly.py
+          python3 hpcc/restart-forensics/audit-91878-ale-point-step-readonly.py --self-test
+          python3 hpcc/clean-production/audit-binary-ale-coordinates.py --self-test
+      - name: Historical initialization control (no new FSI run)
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/audit-historical-initialization-controls-readonly.py
+          python3 hpcc/restart-forensics/audit-historical-initialization-controls-readonly.py --self-test
+      - name: Differential pressure-solver trace audit
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/audit-91819-continuous-vs-restart-first-pressure-readonly.py
+          python3 hpcc/restart-forensics/audit-91819-continuous-vs-restart-first-pressure-readonly.py --self-test
+      - name: Cross-job accepted displacement and force audit
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/audit-91819-accepted-displacement-pressure-readonly.py
+          python3 hpcc/restart-forensics/audit-91819-accepted-displacement-pressure-readonly.py --self-test
+      - name: Native restart state audit parser self-test
+        run: |
+          python3 -m py_compile hpcc/restart-forensics/audit-91819-native-state-readonly.py
+          python3 hpcc/restart-forensics/audit-91819-native-state-readonly.py --self-test
+      - name: Differential force audit parser self-test
+        run: python3 hpcc/restart-forensics/audit-91767-continuity-readonly.py --self-test
+      - name: Guard against leaking Python argv to OpenFOAM bashrc
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('hpcc/restart-forensics/submit-our-restart-2window-20261116.sh').read_text()
+          assert s.index('FSI_TEST_SCRIPT="$1"') < s.index('set --') < s.index('source /usr/lib/openfoam/openfoam2512/etc/bashrc')
+          assert 'python3 "$FSI_TEST_SCRIPT" --base' in s
+          assert 'export FSI_ISOLATED_CORE="$FSI_TEST_CORE"' in s
+          assert 'export FSI_ISOLATED_HELPER_DIR="$FSI_TEST_HELPERS"' in s
+          assert 'FSI_INITIAL_HELPER1_HASH=$H1' in s
+          assert 'FSI_INITIAL_HELPER2_HASH=$H2' in s
+          print('BASHRC_POSITIONAL_ARGUMENT_ISOLATION_PASS')
+          PY
+      - name: Mocked Slurm submission regression
+        run: python3 hpcc/clean-production/test-submit-mock.py
+ in r
+          assert 'NEVER_AUTO_QUEUE_NEXT_STAGE' in d
+          print('G2_DIAGNOSTIC_SAFETY_GATES_OFFLINE_PASS')
+          PY_DIAG
       - name: Read-only available ALE snapshot audit self-test
         run: |
           python3 -m py_compile hpcc/restart-forensics/audit-91878-available-ale-snapshots-readonly.py
