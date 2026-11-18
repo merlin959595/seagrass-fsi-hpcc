@@ -213,12 +213,15 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--base",type=Path,default=Path.home()/"hpcc-fsi")
     p.add_argument("--driver",type=Path,default=Path(__file__).with_name("delta-continuation.py"))
+    p.add_argument("--core",type=Path,default=Path(__file__).with_name("segment.py"))
     p.add_argument("--self-test",action="store_true")
     p.add_argument("--require-g2-eligible",action="store_true")
     args=p.parse_args()
     if args.self_test:
         self_test();return
-    result=audit(args.base.expanduser().resolve(strict=True),args.driver.expanduser().resolve(strict=True))
+    result=audit(args.base.expanduser().resolve(strict=True),
+                 args.driver.expanduser().resolve(strict=True),
+                 args.core.expanduser().resolve(strict=True))
     print(json.dumps(result,indent=2,ensure_ascii=False))
     if args.require_g2_eligible and not result["g2_diagnostic_eligible"]:
         raise SystemExit("G1_BLOCKED_G2_DUE_TO_NATIVE_OR_BOUNDED_ERROR_FAILURE")
