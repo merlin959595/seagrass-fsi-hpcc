@@ -114,6 +114,18 @@ jobs:
         run: |
           python3 -m py_compile hpcc/three-day-resume/inspect-91543.py hpcc/three-day-resume/backup-91543-full.py hpcc/three-day-resume/resume-91543-delta.py hpcc/three-day-resume/submit-91543-continuation.py
           bash -n hpcc/three-day-resume/run-91543-continuation-container.sh hpcc/three-day-resume/backup-and-continue-91543.sh
+          python3 - <<'PY_PIN_REAL'
+          from pathlib import Path
+          launcher=Path('hpcc/three-day-resume/backup-and-continue-91543.sh').read_text()
+          assert 'REV="4d332b9c69ddbe8f7670ab9b4f55236664980cb5"' in launcher
+          assert "inspect-91543.py:inspect-91543.py:9d13c7875a13de36f4dc43181078e3c3b40675db" in launcher
+          assert "backup-91543-full.py:backup-91543-full.py:21e8824c433f964d8db6b11e39a0136802cfaea3" in launcher
+          assert "resume-91543-delta.py:resume-91543-delta.py:1c268d3d8f64863afe2aa0d950f26ac64f74d6b6" in launcher
+          assert "--retry-all-errors" in launcher
+          assert 'FSI_91543_CONTINUE_SECONDS' in launcher
+          assert "BACKUP" in launcher
+          print("PINNED_REAL_91543_MASTER_LAUNCHER_OFFLINE_PASS")
+          PY_PIN_REAL
           python3 hpcc/three-day-resume/resume-91543-delta.py --self-test
           python3 - <<'PY_3DAY'
           from pathlib import Path
