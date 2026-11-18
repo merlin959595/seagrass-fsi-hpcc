@@ -74,6 +74,14 @@ jobs:
           assert 'marker.get("original_strict_1pct_science_pass") is True' in d
           assert "G3_20_WINDOW_PILOT_ONLY" in b
           assert "FSI_DELTA_G3_PILOT" in p
+          # HTTP 503 during source download must never silently reuse bad bytes.
+          assert "--retry 5" in p
+          assert "--retry-all-errors" in p
+          assert "PINNED_CACHED_FILE_VERIFIED" in p
+          assert "git_blob_sha1" in p
+          assert "34d214a58fea571b0fa86facf9e163b1a1c4274c" in p
+          assert "d860072b83b7ea3e17cddfcbbeda7c4fa9fd1a93" in p
+          assert "BLOCKED: both GitHub download endpoints failed" in p
           assert "NO_AUTO_CHAIN_NO_LONG_PRODUCTION" in b
           assert 'if [[ "$ACTION" == "--preflight" ]]' in p
           print("G3_NONPRODUCTION_STRICT_SCIENCE_PILOT_OFFLINE_PASS")
