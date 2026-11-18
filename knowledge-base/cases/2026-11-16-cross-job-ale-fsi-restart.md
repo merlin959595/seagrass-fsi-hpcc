@@ -1,6 +1,6 @@
 # 案例｜2026-11-16～17 三维海草 ALE–FSI 跨 Slurm 作业续算
 
-**最新状态（2026-11-18）：G0 92264 两窗口严格 PASS；G1 92479 原生 20 窗口及检查点经独立审计 PASS，但原定 1% Fx 判据仍 FAIL（最大 1.025275%）；G2 93674 两窗口原生与本段严格科学对照均 PASS，报告仍为诊断性非生产；G3 93691 已通过固定源码哈希、21 个连续参考数据点及检查点预检，成功提交 Slurm 20 窗口非生产试验（物理时间 0.0355→0.0380 s），尚待实际运行与数值验收。自动长程接力未放行。**
+**最新状态（用户 2026-11-19 提供的 HPCC 日志）：G0 92264 两窗口严格 PASS；G1 92479 原生 20 窗口及检查点经独立审计 PASS，但原定 1% Fx 判据仍 FAIL（最大 1.025275%）；G2 93674 两窗口原生及该段严格科学对照 PASS，仍属诊断性非生产；G3 93691 在 cpu-40-15 上 RUNNING，已真实接受 9/20 窗口至物理 0.036625 s，尚未完成原生和科学验收。长程自动接力未放行。**
 
 ## 1. 模型与运行环境
 
@@ -351,6 +351,24 @@ G3_PILOT_ONLY_NO_LONG_PRODUCTION_NO_AUTO_CHAIN
 这次 GitHub HTTP 503 后通过**限定次数的网络重试**恢复，另有两份旧缓存通过固定 Git blob SHA 校验，四个固定计算脚本均被验证；预检、参考覆盖与来源通过，Slurm **确认提交 93691**。这证明网络错误恢复逻辑在真实环境中生效，并不证明 G3 的 20 个 FSI 时间窗口已经完成。
 
 下一步只读检查作业 `93691` 的 `squeue`/`sacct`，以及其隔离目录中的 `STATE.json`、原生 `FSI_SEGMENT_RESULT.json`、`DELTA_CONTINUATION_RESULT.json`、首个 MeshCo 与接受积分。G3 只能在所有 20 个窗口、原生检查与同时间 Fx/Delta0/Delta2 各 ≤1% 的科学对照全部 PASS 时标记 `G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION`。不许默认继续自动长程链。
+
+## 6.10 G3 作业 93691 已真实运行并接受 9/20 个窗口（用户 HPCC 最新日志）
+
+```text
+JOBID 93691; PARTITION cpu; NAME fsi-delt; ST R; TIME 13:55; NODE cpu-40-15
+STATE.json: RUNNING, stage=1, restart_from_time_s=0.0355, final_time_s=0.038
+accepted preCICE relative t: 0.000750, 0.000875, 0.001000, 0.001125
+latest accepted physical t: 0.0355 + 0.001125 = 0.036625 s
+latest accepted Force0: 0.0298741812 N
+latest accepted DisplacementDelta0: 0.102951095
+latest accepted DisplacementDelta2: -0.00857517046
+FSI_SEGMENT_RESULT.json: 尚未生成
+DELTA_CONTINUATION_RESULT.json: 尚未生成
+```
+
+通过最后一条已接受日志，G3 已推进 **9/20 窗口（45%）**，目标是物理 0.038 s；剩余 11 窗口。最后四个已接受 Fx 分别为 `0.0291376618`、`0.0294019930`、`0.0296650202`、`0.0298741812` N。近期 Fx 未出现旧重启问题的剧烈异常或变号，但不能由此推断与连续 91543 的**严格 ≤1%** Fx 差值全数通过；所贴日志没有给出 G3 第一步 MeshCo、最终原生质量及科学对照报告。
+
+**操作提醒**：用户粘贴的长 Python here-doc 在 `PY  print(...)` 一带被截断，终端实际仍输出“尚未生成”，不影响正在运行的 Slurm FSI。后续保持 93691 运行、只读检查结果，不因 9 个窗口正常就启动 G4 或长程自动生产。科学验收应使用原生最终 JSON 的逐窗口 Fx、Delta0、Delta2 与完整网格质量。
 
 ## 7. 只读证据与公开源码
 
