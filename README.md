@@ -6,7 +6,7 @@ Cloud-build a Linux AMD64 container for the University of Macau HPCC.
 
 跨 Slurm 作业双向 FSI 续算等复杂问题的长期经验集中保存在 [knowledge-base](knowledge-base/README.md)。当前最重要的案例是 [2026-11-16 海草 ALE–FSI 跨作业重启事故与修复验收](knowledge-base/cases/2026-11-16-cross-job-ale-fsi-restart.md)，可复用流程见 [增量位移接续 SOP](knowledge-base/playbooks/delta-fsi-continuation.md)。
 
-**最新状态（2026-11-18）：** 92264 两窗口 G0 严格 PASS；92479 G1 原生 20 窗口 PASS，但最大 Fx 差异 **1.025275%**，原定严格 1% 判据仍 FAIL；93674 G2 又经新的独立 Slurm 作业完成 2/2 窗口，原生 PASS、Fx 最大误差 **0.052377%**，本段严格科学对照 PASS。G2 报告保留 `G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION` 和 `production_approved=false`。已经准备 [从 G2 93674 接 20 窗口的独立延长试验](hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh)；仍不自动开启长程生产。
+**最新路线（2026-11-19）：** `91543` 才是需要继续的**72 小时三天长程作业**，从物理时间 `0.0025 s` 开始，原计划目标 `0.1625 s`；其**实际最终接受时间必须在 HPCC 读取八个流体分区与结构检查点才能确定**，不能把原计划当成终态。`93691` 的增量接续分支通过 20/20 窗口原生和 ≤1% 科学对照，现用于证明修正方法。**禁止执行旧三小时/从 93691 启动的方案。** 新 [三天源作业 91543 全量 SHA-256 备份、末态审计和自动依赖续算入口](hpcc/three-day-resume/backup-and-continue-91543.sh) 已准备；首先完整备份真实 `91543`，再在源检查点同步且原生质量检查通过的前提下从其终态开启新的 `DisplacementDelta` 续算作业，所有原始算例均不覆盖。GitHub 离线测试不代表 HPC 已实际备份或已提交续算。
 
 ## Target versions
 
