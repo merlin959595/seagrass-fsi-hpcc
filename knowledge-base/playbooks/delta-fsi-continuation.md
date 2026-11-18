@@ -81,6 +81,29 @@ bash "$FIX/prepare-and-submit-g2-92479.sh" --submit
 
 该命令不会自动修改 91543/92479/91006，也不会把源历史 `FAIL` 变成 `PASS`。如审核不通过，读取错误标签并修复真正的问题，不可用伪造状态文件绕过。
 
+## 2026-11-18｜G2 93674 严格对照通过，下一段 G3 20 窗口延长验证已准备
+
+G2 93674 实际原生终态 `FSI_LONG_SEGMENT_PASS`，两参与者退出码均为 0，接受 **2/2** 窗口至物理 `0.0355 s`，mesh guard 53 次、native checkMesh PASS。与 91543 同物理时间的最大 Fx 相对误差 **0.052377%**，最大 Delta0 **0.000826%**，Delta2 **0.077987%**，本段全满足原定 1% 标准。源 G1 最后 Fx 与 G2 初始 Fx 精确吻合 `0.0261982480 N`，首次 MeshCo 比值 1.0008275。注意 G2 原报告为 `G2_DIAGNOSTIC_BOUNDED_PASS_NOT_PRODUCTION`、`production_approved=false`；原 G1 的 1.025275% 超限仍然有效。
+
+基于真实 G2 原生和严格科学双 PASS，下一步应由 `93674` 的终态做**单次 20 窗口、非生产型 G3 延长试验**：物理 **0.035500→0.038000 s**，下一 CalculiX `READ STEP=6`，使用旧的已验证物性、网格、容器及 Delta 协议；与连续参考逐窗口匹配 Fx/Delta0/Delta2 并继续严格 **≤1%**，同时检查整个 ALE 网格及 8 MPI/结构 checkpoint 完整性。
+
+代码 [G3 冻结脚本入口](../../hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh) 默认为只读预检，显式 `--submit` 才提交一次 Slurm 作业，自动接力始终关闭。即使成功，报告状态也只能为 `G3_PILOT_20_WINDOW_PASS_NOT_PRODUCTION`，不能升级为生产放行。
+
+在 HPCC 登录节点执行：
+
+```bash
+ROOT="$HOME/hpcc-fsi/crossjob-fix-20261116"
+REV="f899dec6c262499ad1ad3c5917236528fc586b2c"
+curl -fLsS \
+  "https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/$REV/hpcc/restart-forensics/prepare-and-submit-g3-after-93674.sh" \
+  -o "$ROOT/prepare-and-submit-g3-after-93674.sh"
+bash "$ROOT/prepare-and-submit-g3-after-93674.sh" --preflight
+# 只有来源报告、同一物理时刻科学数据及 checkpoint 审计完全通过时：
+bash "$ROOT/prepare-and-submit-g3-after-93674.sh" --submit
+```
+
+必须保留 `91006`、`91543`、`92264`、`92479`、`93674` 原数据；不以原失败工况或新任务中任何异常数值冒充合格生产结果。
+
 ## D. 20 窗口新接续预检
 
 优先使用 [单命令 G0 状态检查及 G1 只读准备脚本](../../hpcc/restart-forensics/prepare-g1-after-92264-readonly.sh)。它读取 92264 正式报告；若缺失或未通过，停止且不提交；若通过，会下载固定提交的后续代码副本并调用严格预检。**不会执行 sbatch。**
