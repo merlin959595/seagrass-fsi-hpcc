@@ -6,7 +6,7 @@ Cloud-build a Linux AMD64 container for the University of Macau HPCC.
 
 跨 Slurm 作业双向 FSI 续算等复杂问题的长期经验集中保存在 [knowledge-base](knowledge-base/README.md)。当前最重要的案例是 [2026-11-16 海草 ALE–FSI 跨作业重启事故与修复验收](knowledge-base/cases/2026-11-16-cross-job-ale-fsi-restart.md)，可复用流程见 [增量位移接续 SOP](knowledge-base/playbooks/delta-fsi-continuation.md)。
 
-**状态提示：** 92264 仅有第一窗口的真实受力验收证据；完成两窗口、再跨进程 20 窗口和第二次跨作业验证前，不能声称完全修复，更不能启动自动三天级接力。
+**最新状态（2026-11-18）：** 92264 两窗口 G0 已 PASS；92479 已完成 G1 的 20 窗口科学对照，但最大 Fx 误差 **1.025275%** 略超原 1% 门槛，因此原报告仍是 **FAIL**。Delta0/Delta2 及首次 Mesh Courant 对照接近正常。新增 [G1 原生只读独立审核](hpcc/restart-forensics/audit-g1-92479-for-g2.py) 和 [最多两个窗口的 G2 诊断接续](hpcc/restart-forensics/prepare-and-submit-g2-92479.sh)；不修改原报告、不启动自动长程生产。
 
 ## Target versions
 
