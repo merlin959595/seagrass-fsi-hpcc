@@ -536,9 +536,11 @@ def submit():
     core = find_core(local)
     # No running duplicate of this repair sequence.
     active = subprocess.run(["squeue","-h","-u",os.environ["USER"],"-n",
-        "ale96764repair","-o","%i %T"],capture_output=True,text=True,check=True)
+        "ale96764repair,ale96764go","-o","%i %T"],capture_output=True,text=True,check=True)
     if active.stdout.strip():
-        die("ANOTHER_REPAIR_JOB_ALREADY_ACTIVE "+active.stdout.strip())
+        die("ANOTHER_REPAIR_OR_PRODUCTION_JOB_ALREADY_ACTIVE "+active.stdout.strip())
+    if any(local.glob("RESULT-*.json")) or any(local.glob("CHAIN-*.json")):
+        die("EXISTING_REPAIR_RESULTS_OR_CHAIN_DO_NOT_DUPLICATE_SUBMISSION")
     local.mkdir(exist_ok=True)
     batch_dir = local / "batch"
     batch_dir.mkdir(exist_ok=True)
