@@ -314,3 +314,61 @@ In the actually supplied instructions, the object members at offsets `+0x1b0` an
 At the actual FSI recovery `t=0.5635`, `t>0.5565`, so this existing smoothstep is **already saturated at 1** if the inferred time interpretation is confirmed. Replacing the rank5 reference face diffusivity after this historical transition therefore **does not automatically gain a new gradual transition**. This supports the ALE re-equilibration hypothesis, but does not establish the complete spatial coefficient formula or rule out solver state/processor interaction.
 
 **Do not change model time constants, target field, or solver based on this partial ELF disassembly.** Next read-only evidence: dump the remaining full named `operator()` disassembly (prefer `objdump -d -M intel --no-show-raw-insn --disassemble=...` to a single `/tmp` text file) and ELF data literal context. Confirm constructor input order and full field expression with source if it can be found; do not execute or patch the `.so`. Then design continuity-respecting mesh motion, first-window native gate and bounded FSI verification.
+
+### 2026-11-22 FULL custom ALE operator ELF decoded and validated: time ramp has a discontinuous first spatial window!
+
+The user provided gzip+base64 text of the **complete 720-line** `objdump` for the exact pinned custom shared library, and the decompressed text passed its SHA256 `8228bf83e848bbd5217561946deaa9d2b3af762fac876e2e49d1db9f118c4720` (36,015 bytes). The library itself has pinned SHA256 `1032420382c07a8138f122199017013ed0aa242410f73a41330cbff199aac1a2`. Function `Foam::seagrass558RampFile::operator()() const` runs from address `0x20780`, size `0xe51`; the complete x86-64 machine-code operation has been inspected without changing or loading the `.so`.
+
+**For scalar value `t`, face-centre coordinates `(x,y,z)` in metres, and reference diffusion field `D_ref`**, define smoothstep `H(u) = clamp(u,0,1)^2 * (3 - 2*clamp(u,0,1))`. The custom time weighting is
+```
+s = H((t - 0.5535)/(0.5565 - 0.5535))
+exponent = 0.925 + 0.075*s
+Aamp = 2 + (1.5 - 2)*s = 2 - 0.5*s
+Bamp = -0.35*s
+```
+Time normalization/branch: 0x20798–0x2080c, time smoothstep: 0x20930–0x20952, `exponent` field construction: 0x2081b–0x208cd. The input-order assignment is extremely strongly supported by the six parameter values, though constructor source and PLT call-name resolution are absent from this capture.
+
+**Spatial envelope A**, all constant literals directly decoded from `.rodata` `0x269a8`–`0x269f0`:
+```
+A(x,y,z) =
+  H((x - 0.032)/0.038) *
+  (1 - H((x - 0.165)/0.085)) *
+  (1 - H((abs(y) - 0.018)/0.045)) *
+  (1 - H((z - 0.004)/0.042))
+```
+Support: x 0.032–0.250m, |y| up to 0.063m, z up to 0.046m, with a near-bed plateau for z≤0.004m. At x near 0.114m, y=-0.046m, z≈0.009m, A≈0.3004. Code 0x20cdb–0x20d57, 0x20a60–0x20b31, plus symmetric patch face loop 0x2127e–0x210d4.
+
+**Spatial envelope B**, decoded independently from `0x269f8`–`0x26a38`:
+```
+B(x,y,z) =
+  H((x - 0.035)/0.025) *
+  (1 - H((x - 0.108)/0.037)) *
+  (1 - H((abs(abs(y)-0.005) - 0.00045)/0.010)) *
+  H((z - 0.088)/0.020) *
+  (1 - H((z - 0.132)/0.024))
+```
+Support: x 0.035–0.145m, y is centred on |y|=0.005m with a fade beyond 0.00045m to 0.01045m, z 0.088–0.156m (upper blade band). Code 0x20b35–0x20c2a, 0x20e30–0x20e68, symmetric boundary loop 0x210d8–0x21370. At the 2758 bed cell centre B=0 since z≈0.009m.
+
+**Full face scaling as strongly reconstructed from the arithmetic**:
+```
+if s == 0:
+    D_effective = pow(D_ref, 0.925)     # inferred OpenFOAM field pow call
+else:
+    D_effective =
+        pow(D_ref, exponent)
+        * (1 + (2 - 0.5*s)*A(x,y,z))
+        * (1 - 0.35*s*B(x,y,z))
+```
+The OpenFOAM `dimensionedScalar("exponent", dimless, ...)` construction, reference face field, and field-power call are strongly indicated by function layout, but full PLT call resolution has not been included; treat `pow(D_ref,e)` identification as high-confidence inference, **not a native field-by-field numerical equivalence certificate**. The two spatial factors, exact spatial literal constants and **s=0 early return** are directly supported by complete `operator()` machine code.
+
+**Important discontinuity:** `0x208f4–0x20929` skips both spatial loops iff `s==0`. As soon as `s>0`, envelope **A appears with prefactor `2-0.5*s`**, which tends to 2 as `s→0+`. Thus for any face with A>0, `D(t0+)` has a first-envelope multiplier `1+2A`, whereas exactly at `t0` it has multiplier 1. This is a **genuine discontinuity in the custom model's time dependence**, notwithstanding the cubic smoothstep exponent/B transition. Envelope B is properly scaled by s and vanishes at the onset.
+
+For the measured rank5/cell2758 centroid at original t0=0.5635, x=0.1143562821, y=-0.0462031012, z=0.0092585731m, envelope A≈0.300434965 and B=0. That gives spatial factor about **1.45065245** at the actual recovered t=0.5635 (s=1), versus factor **1.60086993** when s is infinitesimally positive after a retimed ramp start, and exactly 1 at s=0. This is **illustrative cell-centre evaluation only**; real diffusion values are computed at every actual internal/boundary face centre.
+
+**Crucial distinction of two failures**: Existing `0.5535–0.5565` transition ended before actual t=0.5635, so the t0 discontinuity is NOT the current 98512 first-step mechanism at 0.563625. The experimentally verified 98512 catastrophe is caused/correlated with the **abrupt change in the rank5 reference diffusivity file** while the *same* ALE exponent/spatial masks are already at final state. Retiming the current ramp to t=0.5635 without a revised implementation would be a NEW potentially worse discontinuity, not a solution.
+
+**Decision:** **DO NOT merely retime `dynamicMeshDict`**; current binary does not contain a general, continuous interpolation between arbitrary old C2 and new rank5 face-specific reference diffusivity fields. The fitted `s` controls one field power and two *hard-coded* spatial windows; the old positive-Y + near-bed internal-face six-ring changes are NOT general input-defined spatial envelope interpolation. C2 still fails at .580750 and original source was known to fail near .579375, so passing 0.563625 alone is insufficient. Any eventual continuous field change needs either an independently justified new coefficient mechanism or a properly verified old→new field interpolation design, without editing source FSI, disabling mesh guard, or dropping quality checks.
+
+Reproducible pure Python scalar reconstruction (no solver runtime): `hpcc/ale-repair-96764/reconstruct-elf-ramp-20261122.py`. Its synthetic tests check time onset jump, full-ramp late limit, near-bed measured centroid mask and blade-upper mask; GitHub Actions runs it. Use it ONLY for arithmetic inspection, never as a replacement for native OpenFOAM `checkMesh` or coupled FSI.
+
+To complete conclusive identification of the field-power PLT binding without any solver work: on HPCC print `objdump -d -j .plt -j .plt.sec libseagrass558RampDiffusivity.so` and `readelf -rW` filtered for the `pow`/OpenFOAM symbols, **read-only only**. This is optional if a purely scalar envelope mechanism is enough for the engineering decision.
