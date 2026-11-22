@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import struct
 import unittest
 
 HERE=Path(__file__).resolve().parent
@@ -58,6 +59,49 @@ boundaryField { bladeInterface { type calculated; value uniform 1; } }
             with self.assertRaises(RuntimeError):
                 m.field_values(p)
 
+
+
+    def test_binary_surface_scalar_field_roundtrip(self):
+        # Reproduces an OpenFOAM rank-local constant/motionReferenceDiffusivity
+        # declaring format binary, arch LSB;label=32;scalar=64.
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/"motionReferenceDiffusivity"
+            header=(
+                'FoamFile\n{\n version 2.0; format binary;\n'
+                ' arch "LSB;label=32;scalar=64";\n'
+                ' class surfaceScalarField;\n object motionReferenceDiffusivity;\n}\n'
+                'dimensions [0 0 0 0 0 0 0];\n'
+                'internalField nonuniform List<scalar>\n3\n(\n'
+            ).encode("ascii")
+            trailing=b'\n)\n;\nboundaryField { bladeInterface { type calculated; } }\n'
+            values=[5931.11453589184,6785.157856,8272.74259869362]
+            p.write_bytes(header+struct.pack("<3d",*values)+trailing)
+            data,start,end,read=m.field_values(p)
+            self.assertEqual(data[:start],header)
+            self.assertEqual(data[end:],trailing)
+            self.assertEqual(read,values)
+            changed=[x*1.2 for x in read]
+            payload=m.encode_field_payload(data,changed)
+            self.assertEqual(len(payload),3*8)
+            p.write_bytes(data[:start]+payload+data[end:])
+            out,lo,hi,decoded=m.field_values(p)
+            self.assertEqual(out[:lo],header)
+            self.assertEqual(out[hi:],trailing)
+            for a,b in zip(decoded,changed):
+                self.assertAlmostEqual(a,b)
+            self.assertNotEqual(m.sha(p),m.hashlib.sha256(data).hexdigest())
+
+    def test_binary_incomplete_payload_fails_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/"motionReferenceDiffusivity"
+            header=(
+                'FoamFile { format binary; arch "LSB;label=32;scalar=64"; '
+                'class surfaceScalarField; }\n'
+                'internalField nonuniform List<scalar>\n2\n(\n'
+            ).encode("ascii")
+            p.write_bytes(header+struct.pack("<1d",42)+b'\n)\n;\n')
+            with self.assertRaises(RuntimeError):
+                m.field_values(p)
 
     def test_actual_local_face_patch_is_scoped(self):
         # Mock a rank with the six known incident faces, without HPCC access.
