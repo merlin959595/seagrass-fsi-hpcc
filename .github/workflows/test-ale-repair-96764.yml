@@ -17,6 +17,13 @@ jobs:
           set -euo pipefail
           python3 -m py_compile hpcc/ale-repair-96764/repair96764.py hpcc/ale-repair-96764/test_repair96764.py
           python3 hpcc/ale-repair-96764/test_repair96764.py -v
+      - name: Check frozen bootstrap, source pinning and bash syntax
+        run: |
+          set -euo pipefail
+          bash -n hpcc/ale-repair-96764/bootstrap-96764.sh
+          test "$(git hash-object hpcc/ale-repair-96764/repair96764.py)" = "65142d725ac753c96ecbb139647d8d112daa0e0a"
+          test "$(git hash-object hpcc/clean-production/segment.py)" = "15a219c75a7e417d707549c2a0e46bbebd761d19"
+          grep -Fq "65142d725ac753c96ecbb139647d8d112daa0e0a" hpcc/ale-repair-96764/bootstrap-96764.sh
       - name: Check script does not execute HPCC when imported
         run: |
           python3 hpcc/ale-repair-96764/repair96764.py --help
