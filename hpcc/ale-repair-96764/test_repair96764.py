@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import struct
 import shutil
+from unittest import mock
 import unittest
 
 HERE=Path(__file__).resolve().parent
@@ -145,7 +146,7 @@ boundaryField { bladeInterface { type calculated; value uniform 1; } }
         self.assertTrue(source.is_file())
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
-            (root/"code-v4").mkdir()
+            (root/"code-v5").mkdir()
             target=root/"code-v4/segment.py"
             shutil.copy2(source,target)
             self.assertEqual(m.find_core(root),target)
@@ -155,6 +156,31 @@ boundaryField { bladeInterface { type calculated; value uniform 1; } }
             target.unlink()
             with self.assertRaisesRegex(RuntimeError,"PINNED_EXISTING_FSI_SEGMENT_CORE_NOT_FOUND"):
                 m.find_core(root)
+
+    def test_native_python_wrapper_and_slurm_dispatch(self):
+        original = HERE/"run-96764-container.sh"
+        self.assertTrue(original.is_file())
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            code = root/"code-v5"
+            code.mkdir()
+            wrapper = code/"run-96764-container.sh"
+            shutil.copy2(original,wrapper)
+            self.assertEqual(m.native_wrapper(root),wrapper)
+            fake_image = root/"seagrass-fsi-ompi507-scotch-time.sif"
+            fake_image.write_bytes(b"synthetic only")
+            script = root/"repair96764.py"
+            script.write_text("print('test')\n")
+            with mock.patch.object(m.Path,"home",return_value=root):
+                cmd=m.native_batch_command(root,script,"--run-job")
+            self.assertIn(" /bin/bash ",cmd)
+            self.assertIn("run-96764-container.sh",cmd)
+            self.assertIn(" --run-job",cmd)
+            self.assertNotIn("bash -c",cmd)
+            self.assertNotIn("/bin/bash "+str(script),cmd)
+            wrapper.write_text(wrapper.read_text()+"\n# modified\n")
+            with self.assertRaisesRegex(RuntimeError,"NATIVE_PYTHON_WRAPPER_GIT_BLOB_MISMATCH"):
+                m.native_wrapper(root)
 
     def test_fail_closed_missing_outputs(self):
         with tempfile.TemporaryDirectory() as d:
