@@ -85,3 +85,15 @@ Job 97576 returned REPAIR_NOT_YET_VALIDATED and next_production_submission_permi
 **Safe immediate action:** If V5 C1/C2 replicated identical fatal guards and job 97854 remains active, the pinned stop-duplicate-97854.sh will cancel only that Slurm job, leaving source, SHA256 backups and partial candidate data untouched.
 
 **Next engineering gate:** Before new production simulations, identify the actual failing cell/face/rank and its geometry; audit accepted reference geometry versus pointDisplacement at restart, interface/processor diffusivity continuity, and restart force/displacement state. Modify the ALE motion field using a new geometry-based intervention and independently validate one native FSI path past 0.58075 and 0.6035, not three arbitrary constant multipliers. Do not claim a real FSI pass or queue production until that evidence exists.
+
+### 2026-11-22 native failed-cell identity resolved
+
+The private isolated eight-MPI OpenFOAM v2512 `checkMesh -allGeometry -writeSets vtk` on saved V3-C2 mesh snapshots returned:
+
+- `0.580500 s`: `Mesh OK`, `Concave cell check OK`; max non-orthogonality 64.9473°, max skewness 3.92492.
+- `0.580750 s`: `***Concave cells (using face planes) found, number of cells: 1`; `Failed 1 mesh checks`; max non-orthogonality 64.9515°, max skewness 3.92624.
+- `processor5/0.58075/polyMesh/sets/concaveCells`: `1(2758)`; all seven other processor cellSets are `0()`. The **new failing cell is rank5/cell2758**, not the **prior multiplier center rank5/cell3535**. Their physical distance and adjacency are not yet established.
+- The saved failing mesh independently reproduces concavity, so this is **not solely an unpersisted coupling-iteration artifact**.
+- A VTK geometry export exists at `diagnostics/native-concavity-97576-c2/postProcessing/0.58075/concaveCells/concaveCells.vtp`.
+
+Next action: run `audit-cell2758-geometry-readonly.py` on the pre-existing private mesh copy to determine face connectivity, 3535→2758 graph distance and vertex movement from 0.5805 to 0.58075. The diagnostic uses only Python stdlib, does not modify user data or start a Slurm job. It was syntax/fixture tested in GitHub CI; native geometry analysis on actual HPCC data remains to be performed. Do not change any ALE coefficient or submit production until topology and face-plane geometry are examined.
