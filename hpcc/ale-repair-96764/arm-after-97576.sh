@@ -15,9 +15,20 @@ G="$R/guardian-after97576"
     echo "MISSING_FULL_96764_BACKUP; NOT_ARMING" >&2; exit 20;
 }
 ACTIVE="$(squeue -h -j 97576 -o "%i %T")" || exit 21
-if [[ "$ACTIVE" != *"97576 RUNNING"* && "$ACTIVE" != *"97576 PENDING"* ]];then
-    echo "PARENT_NOT_ACTIVE_OR_UNEXPECTED_SQUEUE_STATE: $ACTIVE" >&2
-    exit 21
+DEPENDENCY=""
+if [[ "$ACTIVE" =~ 97576[[:space:]]+(RUNNING|PENDING|CONFIGURING|COMPLETING) ]]; then
+    DEPENDENCY="--dependency=afterany:97576"
+else
+    STATE="$(sacct -j 97576 -X -n -o State 2>/dev/null | head -1 | xargs || true)"
+    case "$STATE" in
+        COMPLETED|FAILED|CANCELLED*|TIMEOUT|NODE_FAIL|OUT_OF_MEMORY|PREEMPTED|DEADLINE)
+            echo "PARENT_TERMINAL_$STATE; GUARDIAN_WILL_CHECK_IMMEDIATELY"
+            ;;
+        *)
+            echo "PARENT_STATUS_UNVERIFIED active=$ACTIVE accounting=$STATE" >&2
+            exit 21
+            ;;
+    esac
 fi
 if ! mkdir "$G" 2>/dev/null; then
     echo "GUARDIAN_DIRECTORY_ALREADY_EXISTS; REFUSE_DUPLICATE_SUBMISSION: $G" >&2
@@ -76,11 +87,15 @@ set -Eeuo pipefail
 bash "$G/watch-after-97576.sh"
 EOF
 chmod a-w "$BATCH"
-RESULT="$(sbatch --parsable --dependency=afterany:97576 "$BATCH")"
+if [[ -n "$DEPENDENCY" ]]; then
+    RESULT="$(sbatch --parsable "$DEPENDENCY" "$BATCH")"
+else
+    RESULT="$(sbatch --parsable "$BATCH")"
+fi
 ID="${RESULT%%;*}"
 [[ "$ID" =~ ^[0-9]+$ ]] || {
     echo "SLURM_SUBMIT_RETURNED_UNEXPECTED_RESULT: $RESULT" >&2; exit 25;
 }
 printf '%s\n' "$ID" > "$G/guardian-job-id.txt"
-echo "AFTERANY_GUARDIAN_SUBMITTED $ID afterany:97576"
-echo "NO_FSI_JOB_NOW; THE_WATCHDOG_ONLY_RUNS_AFTER_JOB_97576_EXITS"
+echo "FALLBACK_GUARDIAN_SUBMITTED $ID dependency=${DEPENDENCY:-immediate-after-terminal}"
+echo "NO_FSI_JOB_NOW; ONLY_GUARDIAN_SUBMITTED"
