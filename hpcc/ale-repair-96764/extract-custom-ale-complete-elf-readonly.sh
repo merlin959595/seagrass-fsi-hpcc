@@ -18,8 +18,11 @@ fi
 for tool in nm objdump readelf mktemp; do
     command -v "$tool" >/dev/null || { echo "TOOL_MISSING $tool" >&2; exit 12; }
 done
-if ! nm -D -S "$LIB" | grep -Fq "$SYM"; then
-    echo "EXPECTED_OPERATOR_SYMBOL_MISSING_NO_ACTION" >&2
+# Do not use grep -q here: with 'set -o pipefail', grep may close the
+# pipe after the first match and make nm fail with SIGPIPE (status 141).
+# grep -F consumes the entire nm output, so the status is trustworthy.
+if ! nm -D -S "$LIB" | grep -F -- "$SYM" >/dev/null; then
+    echo "EXPECTED_OPERATOR_SYMBOL_MISSING_OR_NM_ERROR_NO_ACTION" >&2
     exit 13
 fi
 DEST="$(mktemp -d /tmp/seagrass558-elf-static.XXXXXXXX)"
