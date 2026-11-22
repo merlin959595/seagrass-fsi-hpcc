@@ -141,7 +141,7 @@ def main():
     failedset=root/"native-first-window-98512/processor5/0.563625/polyMesh/sets/concaveCells"
     if not failedset.is_file():fail("EXPECTED_NATIVE_98512_CONCAVE_CELLSET_MISSING")
     settxt=failedset.read_text()
-    if not re.search(r"(?m)^1\\(2758\\)\\s*$",settxt):
+    if not re.search(r"(?m)^1\(2758\)\s*$",settxt):
         fail("NATIVE_SET_IS_NOT_UNIQUE_CELL2758")
     print("NATIVE_98512_CELL2758_ONLY_CONCAVE_RANK5_CONFIRMED")
     print("CONCLUSIONS_ONLY_AFTER_CHECKING_NATIVE_PAIR_CROSSING_AND_CELL_SETS")
