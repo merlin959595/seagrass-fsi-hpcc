@@ -651,6 +651,7 @@ def submit():
 set -euo pipefail
 module load gnu14/14.2.0 openmpi5/5.0.7
 export SINGULARITYENV_SLURM_JOB_ID="$SLURM_JOB_ID"
+export SINGULARITYENV_USER="$USER"
 {native_batch_command(local, script, "--run-job")}
 """
     batch.write_text(body)
