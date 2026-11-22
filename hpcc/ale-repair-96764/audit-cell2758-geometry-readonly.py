@@ -245,7 +245,35 @@ def main():
     print("EXACT_CELL_ID_AND_GEOMETRY_IDENTIFIED; NO_MESH_OR_FSI_MODIFICATIONS")
     print("NOTE: face-plane distances are a geometric aid, not a substitute for native checkMesh verdict.")
 
+
+def self_test():
+    import tempfile
+    head=lambda cls: (
+        b'FoamFile\n{\n version 2.0;\n format binary;\n'
+        +b' arch "LSB;label=32;scalar=64";\n class '+cls.encode()
+        +b';\n}\n// banner between header and data\n')
+    b32=lambda values: struct.pack("<"+str(len(values))+"i",*values)
+    block=lambda vals: str(len(vals)).encode()+b"\n(\n"+b32(vals)+b"\n)\n"
+    with tempfile.TemporaryDirectory() as folder:
+        p=Path(folder)
+        f=p/"faces"
+        f.write_bytes(head("faceCompactList")+block([0,4,8])+block([0,1,2,3,4,5,6,7]))
+        assert faces(f,2,8)==[[0,1,2,3],[4,5,6,7]]
+        o=p/"owner"
+        o.write_bytes(head("labelList")+block([0,1,2,3]))
+        assert list(labels(o))==[0,1,2,3]
+        pt=p/"points"
+        vals=[float(x) for x in range(24)]
+        pt.write_bytes(head("vectorField")+b"8\n(\n"+struct.pack("<24d",*vals)+b"\n)\n")
+        actual=points(pt)
+        assert len(actual)==8 and actual[0]==(0.,1.,2.) and actual[-1]==(21.,22.,23.)
+        assert foam_header(f.read_bytes())[1]=="faceCompactList"
+    print("ALE_CELL2758_STDLIB_BINARY_FACE_PARSER_SELFTEST_PASS")
+
 if __name__=="__main__":
+    if "--self-test" in sys.argv:
+        self_test()
+        sys.exit(0)
     try:main()
     except Exception as e:
         print("READONLY_GEOMETRY_AUDIT_FAILED",type(e).__name__,str(e),file=sys.stderr)
