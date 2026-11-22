@@ -31,6 +31,7 @@ jobs:
           bash -n hpcc/ale-repair-96764/watch-after-97576.sh
           bash -n hpcc/ale-repair-96764/triage-97576-readonly.sh
           bash -n hpcc/ale-repair-96764/stop-duplicate-97854.sh
+          bash -n hpcc/ale-repair-96764/diagnose-native-concavity-97576-c2.sh
           test "$(git hash-object hpcc/ale-repair-96764/repair96764.py)" = "bc8c4decb24cf3b94a017f7149a2080bf7570929"
           test "$(git hash-object hpcc/clean-production/segment.py)" = "15a219c75a7e417d707549c2a0e46bbebd761d19"
           grep -Fq "bc8c4decb24cf3b94a017f7149a2080bf7570929" hpcc/ale-repair-96764/bootstrap-96764-v5.sh
