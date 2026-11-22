@@ -259,3 +259,27 @@ Combined with independent native mesh checks: **C2 (gain0.85 at positive Y) pass
 **Strongest supported working hypothesis:** the changed spatial diffusivity of the displacement-Laplacian ALE solver caused an initial redistribution of absolute mesh displacement near the pinned bed. Do not claim a proved root cause from hash equality alone; check the custom seagrass558RampFile C++ implementation, time update of the coefficient field, processor coupling, and points0 before proposing a continuous-time coefficient ramp or a mesh redesign.
 
 **Engineering gate:** Reuse original untouched 0.5635 s FSI source and SHA-verified backups; withdraw 98512 gain2.0; do not use any failed snapshots as accepted restarts. Any new candidate needs (i) documented coefficient-transition model, (ii) native guard PASS in a two-window short test before 144-window or longer native FSI, (iii) preserve native concavity, face-tet, non-orthogonality<=65 deg, skew<4, meshCo<=0.5 and participant exit codes 0, (iv) force/displacement and 8-rank/solid checkpoint acceptance, (v) cross 0.580750 and subsequently 0.603500. No automatic production job until validated.
+
+### 2026-11-22 exact native dynamicMeshDict and compiled custom diffusivity verified
+
+From actual UM HPCC read-only command, the accepted source trial96763 fluid `constant/dynamicMeshDict` contains:
+
+```foam
+dynamicFvMesh dynamicMotionSolverFvMesh;
+motionSolverLibs ("libfvMotionSolvers.so" "/home/mc55028/hpcc-fsi/three-day-resume-20261119/.mesh-repair558-data.29CSy1/lib/libseagrass558RampDiffusivity.so");
+solver displacementLaplacian;
+displacementLaplacianCoeffs
+{
+    diffusivity seagrass558RampFile
+        motionReferenceDiffusivity
+        0.5535 0.5565 0.925 1.000 1.5 -0.35;
+}
+```
+
+The installed custom `.so` SHA-256 is exactly `1032420382c07a8138f122199017013ed0aa242410f73a41330cbff199aac1a2`, matching the frozen production verifier. A `find` under the known helper workspace at maxdepth4 returned no `*Diffusivity*.C`, `*Diffusivity*.H`, `*Ramp*.C`; the identical command under `processor5` did not find a file literally named `points0` within maxdepth4. These absences DO NOT imply source or reference points are absent elsewhere, nor that the solver did not initialize its `points0()` state in memory.
+
+**Crucial distinction:** The first two custom numbers `0.5535 0.5565` are chronologically **before** physical restart at `0.5635`, but without the compiled custom model's C++ source one cannot assert their meaning or that a ramp has already completed. Nor do the other parameters `0.925 1.000 1.5 -0.35` have a verified parameter definition. Unlike upstream `displacementLaplacian`, `seagrass558RampFile` is a project-defined runtime-selected model, not a standard named diffusivity in the official v2512 documentation.
+
+Official OpenFOAM v2512 upstream `displacementLaplacianFvMotionSolver::solve()` explicitly calls `diffusivity().correct()` then updates point/cell displacement boundary fields and solves a Laplacian equation for `cellDisplacement`; the `curPoints()` implementation relates initial/reference points to `pointDisplacement`: https://api.openfoam.com/2512/displacementLaplacianFvMotionSolver_8C_source.html . This confirms **why** altered reference diffusivity could change the reconstructed interior ALE displacement at the first iteration. It does NOT, alone, prove the particular custom ramp algorithm.
+
+The prior 8-rank SHA audit did NOT compare the potentially relevant runtime input `cellDisplacement` field, nor determine all `points0` variants. Added strictly read-only diagnostic `hpcc/ale-repair-96764/audit-ale-ramp-lib-and-cellDisplacement-readonly.py` audits same-instant `cellDisplacement`, `pointDisplacement`, `pointLocation`, several `points0` path candidates and complete case config SHA across source96763, C2 97576 and failed98512. It runs `nm -DC` and `strings -a` against the *same verified custom library* for names and hints without loading or executing it. All output is diagnostic only, never a reason to assume compiled parameter semantics. No solver or Slurm process is launched.
