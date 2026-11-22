@@ -257,7 +257,7 @@ def cell_face_centre_concavity_proxy(facepairs,coords,cell,owner):
 
 
 
-def critical_face_pair_motion_decomposition(p0,p1,face1,face2):
+def critical_face_pair_motion_decomposition(p0,p1,face1,face2,outward_sign=1):
     """Disentangle centre separation from normal rotation at critical faces."""
     fc10,n10=foam_compatible_face_metric(face1,p0)
     fc20,_=foam_compatible_face_metric(face2,p0)
@@ -269,7 +269,8 @@ def critical_face_pair_motion_decomposition(p0,p1,face1,face2):
         return tuple(x/length for x in v)
     def dot(a,b):return sum(a[i]*b[i] for i in range(3))
     def sub(a,b):return tuple(a[i]-b[i] for i in range(3))
-    u0,u1=unit(n10),unit(n11)
+    u0,u1=(tuple(outward_sign*x for x in unit(n10)),
+           tuple(outward_sign*x for x in unit(n11)))
     d0,d1=sub(fc20,fc10),sub(fc21,fc11)
     change=sub(d1,d0)
     rotation=sub(u1,u0)
@@ -361,10 +362,13 @@ def main():
         print("CELL_VERTEX_MOTION_0.5805_TO_0.58075_m",cell,motions)
     # Pair whose projection sign flips and whose mesh snapshot is concave.
     f1,f2=9315,9306
-    if owner[f1]!=FAIL_CELL or owner[f2]!=FAIL_CELL:
-        raise RuntimeError("Unexpected face orientation; no inferred repair")
+    if not ((owner[f1]==FAIL_CELL or neighbor[f1]==FAIL_CELL) and
+            (owner[f2]==FAIL_CELL or neighbor[f2]==FAIL_CELL)):
+        raise RuntimeError("Unexpected face membership; no inferred repair")
+    sign=1 if owner[f1]==FAIL_CELL else -1
     metrics=critical_face_pair_motion_decomposition(first_points,second_points,
-                                                     mesh_faces[f1],mesh_faces[f2])
+                                                     mesh_faces[f1],mesh_faces[f2],
+                                                     outward_sign=sign)
     print("CRITICAL_PAIR_9315_TO_9306_BREAKDOWN",metrics)
     for vid in sorted(set(mesh_faces[f1]+mesh_faces[f2])):
         d=tuple(second_points[vid][i]-first_points[vid][i] for i in range(3))
