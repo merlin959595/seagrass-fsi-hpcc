@@ -48,8 +48,8 @@ fetch_verified() {
 
 # Pin precisely the reviewed repair controller and frozen, proven FSI core.
 fetch_verified "hpcc/ale-repair-96764/repair96764.py" \
-  "9c9f0a94539d92a7c74920c3057614de2b086943" \
-  "08ad6ab473ddcc6c1976d0cd184201ebb262162d" "repair96764.py"
+  "ef3c2874b67ca090b94980bb5aeeb8904b91a700" \
+  "65142d725ac753c96ecbb139647d8d112daa0e0a" "repair96764.py"
 fetch_verified "hpcc/clean-production/segment.py" \
   "1b08f9dabb6f3158891289bede0c7a00070340f7" \
   "15a219c75a7e417d707549c2a0e46bbebd761d19" "segment.py"
