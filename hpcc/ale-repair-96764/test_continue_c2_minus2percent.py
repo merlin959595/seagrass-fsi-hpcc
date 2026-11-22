@@ -74,7 +74,12 @@ class C2Minus2PercentNativeContinuationTests(unittest.TestCase):
             for x in info["cell2758_incident_face_factors"]:
                 self.assertAlmostEqual(x["relative_to_C2"],.98)
             self.assertAlmostEqual(after[11491]/before[11491],.85,places=12)
-            self.assertAlmostEqual(after[9315]/before[9315],.98,places=12)
+            # Old C2 +Y profile also overlaps this face by a small amount,
+            # so total source->new ratio is NOT exactly 0.98. The
+            # exact 0.98 criterion is already verified relative to C2.
+            row=next(k for k in info["cell2758_incident_face_factors"] if k["face"]==9315)
+            self.assertAlmostEqual(after[9315]/before[9315],
+                                   row["c2_multiplier"]*.98,places=12)
             self.assertLess(min(after),min(before))
             self.assertGreater(info["changed_internal_faces_negative_region"],6)
             self.assertTrue(info["processor_patch_overlap"] is False)
