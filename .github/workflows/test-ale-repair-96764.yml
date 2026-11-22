@@ -20,6 +20,8 @@ jobs:
           python3 -m py_compile hpcc/ale-repair-96764/audit-cell2758-geometry-readonly.py
           python3 hpcc/ale-repair-96764/audit-cell2758-geometry-readonly.py --self-test
           python3 hpcc/ale-repair-96764/test_repair96764.py -v
+          python3 -m py_compile hpcc/ale-repair-96764/one-shot-bed2758-native-fsi.py
+          python3 hpcc/ale-repair-96764/test_one_shot_bed2758.py -v
       - name: Check frozen bootstrap, source pinning and bash syntax
         run: |
           set -euo pipefail
