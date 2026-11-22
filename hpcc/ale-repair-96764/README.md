@@ -140,3 +140,20 @@ The actual old C2 factor at the five incident face IDs 9318,9306,9309,9313,9315 
 The controller refuses changed topology, missing original/source evidence, missing verified backups, field-encoding mismatch, a region touching a processor-coupled boundary, and duplicate active trials. It runs exactly one genuine two-way FSI candidate from the **last fully accepted 0.5635 s checkpoint** through 0.5815 s, then to 0.6035 s only after a complete stage1 pass, with full native FSI and eight fluid rank / CalculiX restart acceptance. It **does not** change wall vertices, mesh topology, quality thresholds, forces or coupling schemes, and it does **not** automatically queue production. It reuses existing complete checksum backups without making expensive second copies. GitHub tests are synthetic; do not claim a live HPCC repair or production restart until native solver validation succeeds.
 
 If new geometry fails or the processor patch safety check refuses submission, stop and revisit the spatial motion method instead of blind parameter sweeps.
+
+### 2026-11-22 real 98512 negative-Y gain2.0 trial: FAILED in first window, withdraw candidate
+
+The native 98512 one-candidate real two-way FSI attempt started from the verified 0.563500 s checkpoint but **failed at the first attempted time 0.563625 s**, not at the prior C2 failure at 0.580750 s.
+
+Evidence from the actual user-provided HPCC logs:
+- First and last `SEAGRASS_MESH_GUARD`: `time=0.563625 minVolume=2.017407002313e-11 concave=1 qualityFailed=1 skewFailed=0 orthFailed=0 tetFailed=1`. This indicates geometry failure (concave and face-tet flags), not a violation of the skew or orth thresholds at that time. It does **not** identify the newly failed cell.
+- The native driver `STATE.json` says `FSI_LONG_SEGMENT_FAILED`, `restart_from_time_s=0.5635`, `final_time_s=0.5815`, `FSI exits invalid: {'fluid': 1, 'solid': 134}`.
+- Solid logs show preCICE socket EOF and signal 6 after the fluid OpenFOAM fatal error. This is plausibly downstream of the fluid failure; no independent structural root cause proven.
+- `DELTA_CONTINUATION_RESULT.json`: `91543_CONTINUATION_FAIL`; first attempted meshCo=0.81835184350932 exceeds 0.5, though no same-time external scientific reference is available.
+- `RESULT-98512.json`: `TARGETED_BED2758_REPAIR_NOT_VALIDATED`, verified_time_s=0.5635; Stage2 never launched; no production continuation queued.
+- `sacct` responded with accounting DB persistent connection refused (localhost:6819), independent of the real log verdict.
+- Trial applied rank5 internal reference-field patch successfully, recorded SHA-256 `7cfdb551c2b500fe392535ca118b9db562f237a654de22c32420bec64f6e58de`, but **this trial must be withdrawn**. The one-shot gain2.0 negatively altered ALE response at the restart itself.
+
+**Do not retry 98512, do not change mesh guards, do not accept any 98512 snapshot as a new coupled restart.** Maintain source 0.5635 and old checksum backups unchanged.
+
+Read-only script `triage-98512-first-window-readonly.py` compares first and failed guards / fatal context for original C2 jobs97576 & 97854 versus 98512 and reports whether a failed first-window mesh snapshot exists for processor5. This is essential to separate initial ALE reference-field sensitivity from a new failure at the prior cell2758; the latter cannot be assumed from flags alone. In future geometry interventions, prefer removing extreme near-wall coefficient discontinuity and testing face-normal rotation/processor consistency without arbitrary escalating multipliers; do not launch another FSI without a reproducible local geometry reason and native first-window acceptance.
