@@ -112,3 +112,19 @@ The sign crossed zero, a change of +2.269337659472053e-6 m (**+2.269337659 µm**
 **Interpretation limits**: Independent geometry proxy is NOT an OpenFOAM source-code equivalence proof. The prior 8-ring smooth diffusivity change can influence the failed cell but its weight falls off strongly with distance. Do not claim the failure was caused by a particular vertex or that changing scalar diffusivity alone guarantees repair. The actual failing cell, sign-crossing pair and nonzero face motion are observed facts; effective ALE intervention is still experimental.
 
 Updated `audit-cell2758-geometry-readonly.py` decomposes the critical signed-projection change into (a) relative motion of the face centres and (b) rotation of face9315 outward unit normal; test all new repair ideas against this precise failure metric AND the native checkMesh and real two-way FSI guards, not merely the zero crossing. No production calculation has been authorized from the failed trial.
+
+### 2026-11-22 verified root geometry mechanism: face normal rotation dominates
+
+The latest `CRITICAL_PAIR_9315_TO_9306_BREAKDOWN` output from the private failed V3-C2 mesh isolates the **+2.269337659 µm** movement across the concavity boundary:
+
+| Term | Change in outward face-to-face projection |
+|---|---:|
+| Relative motion of face centres | **−2.690150378 µm** (helps) |
+| Rotation of outward unit normal of face9315 | **+4.959488037 µm** (harms) |
+| Net | **+2.269337659 µm** |
+
+The face9315 normal turned only **0.03713748°**, from (-0.82726248, -0.04357972, 0.56012284) to (-0.82689974, -0.04356092, 0.56065967). The centre-based normal projection moved from −2.06530 µm at 0.580500 s (native checkMesh PASS) to +0.204039 µm at 0.580750 s (one native concave cell rank5/2758). Static face9315 vertices 3922/3923 had zero motion across these snapshots while its other two vertices 3918/3919 moved ~4.10/3.83 µm in mostly +X/−Z. The critical pair is geometrically near-degenerate; simply altering centre translation is the wrong primary control.
+
+**Not established**: Whether vertices 3922/3923 are physical wall patch vertices or only transiently stationary; whether the patch face itself is an interface or processor boundary; which individual ALE degrees of freedom controls the normal rotation; and whether a coefficient change preserves reliable fluid-solid restart. The C2 repair field was changed solely around prior rank5 cell3535 at Y=+0.046203 m, whereas cell2758 is at Y=−0.046203 m, seven topological layers away.
+
+A new strictly read-only `--constraints` mode of `audit-cell2758-geometry-readonly.py` reports exact boundary patch memberships of eight vertices, original C2 gain=0.85 face weighting at six incident faces, and finite-difference projection sensitivity attribution across real observed motion. This is the required precondition for designing a **smooth, boundary-respecting bilateral/negative-Y near-bed ALE displacement-gradient intervention**. The intended production workflow remains: original verified checkpoint t=0.5635 s -> isolated native coupled FSI until beyond 0.58075 and target 0.6035 -> verify eight fluid ranks, solid restarts, force/disp coupling and all guards -> then queue continuation. **No speculative restart and no blind coefficient sweep.**
