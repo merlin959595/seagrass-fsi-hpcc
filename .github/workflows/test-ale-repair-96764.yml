@@ -23,6 +23,7 @@ jobs:
           python3 -m py_compile hpcc/ale-repair-96764/one-shot-bed2758-native-fsi.py
           python3 -m py_compile hpcc/ale-repair-96764/triage-98512-first-window-readonly.py
           python3 -m py_compile hpcc/ale-repair-96764/native-check-98512-first-window.py
+          python3 -m py_compile hpcc/ale-repair-96764/compare-98512-and-c2-cell2758.py
           python3 hpcc/ale-repair-96764/native-check-98512-first-window.py --help
           python3 hpcc/ale-repair-96764/test_one_shot_bed2758.py -v
       - name: Check frozen bootstrap, source pinning and bash syntax
