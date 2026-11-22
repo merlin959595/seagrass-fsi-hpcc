@@ -256,6 +256,42 @@ def cell_face_centre_concavity_proxy(facepairs,coords,cell,owner):
     return results
 
 
+
+def critical_face_pair_motion_decomposition(p0,p1,face1,face2):
+    """Disentangle centre separation from normal rotation at critical faces."""
+    fc10,n10=foam_compatible_face_metric(face1,p0)
+    fc20,_=foam_compatible_face_metric(face2,p0)
+    fc11,n11=foam_compatible_face_metric(face1,p1)
+    fc21,_=foam_compatible_face_metric(face2,p1)
+    def unit(v):
+        length=math.sqrt(sum(x*x for x in v))
+        if length<=1e-300: raise ValueError("degenerate face")
+        return tuple(x/length for x in v)
+    def dot(a,b):return sum(a[i]*b[i] for i in range(3))
+    def sub(a,b):return tuple(a[i]-b[i] for i in range(3))
+    u0,u1=unit(n10),unit(n11)
+    d0,d1=sub(fc20,fc10),sub(fc21,fc11)
+    change=sub(d1,d0)
+    rotation=sub(u1,u0)
+    old=dot(u0,d0);new=dot(u1,d1)
+    due_centre=dot(u0,change)
+    due_rotation=dot(rotation,d1)
+    if abs((new-old)-due_centre-due_rotation)>1e-12:
+        raise AssertionError("decomposition does not close")
+    return {
+       "face1_centre_start_m":fc10,"face1_centre_end_m":fc11,
+       "face2_centre_start_m":fc20,"face2_centre_end_m":fc21,
+       "face1_outward_normal_start":u0,"face1_outward_normal_end":u1,
+       "face1_centre_motion_m":sub(fc11,fc10),
+       "face2_centre_motion_m":sub(fc21,fc20),
+       "between_face_centre_motion_m":change,
+       "start_projection_m":old,"end_projection_m":new,
+       "projection_change_m":new-old,
+       "due_to_relative_face_centre_m":due_centre,
+       "due_to_face1_normal_rotation_m":due_rotation,
+       "face1_normal_angle_deg":math.degrees(math.acos(max(-1,min(1,dot(u0,u1))))),
+    }
+
 def main():
     if not os.environ.get("USER"):raise RuntimeError("USER missing")
     d=Path("/data/icto")/os.environ["USER"]/"seagrass-fsi558-runs.sNIpi9/diagnostics/native-concavity-97576-c2"
@@ -323,6 +359,17 @@ def main():
             [(i,math.dist(first_points[i],second_points[i])) for i in vids],
             key=lambda x:x[1],reverse=True)
         print("CELL_VERTEX_MOTION_0.5805_TO_0.58075_m",cell,motions)
+    # Pair whose projection sign flips and whose mesh snapshot is concave.
+    f1,f2=9315,9306
+    if owner[f1]!=FAIL_CELL or owner[f2]!=FAIL_CELL:
+        raise RuntimeError("Unexpected face orientation; no inferred repair")
+    metrics=critical_face_pair_motion_decomposition(first_points,second_points,
+                                                     mesh_faces[f1],mesh_faces[f2])
+    print("CRITICAL_PAIR_9315_TO_9306_BREAKDOWN",metrics)
+    for vid in sorted(set(mesh_faces[f1]+mesh_faces[f2])):
+        d=tuple(second_points[vid][i]-first_points[vid][i] for i in range(3))
+        print("CRITICAL_VERTEX_VECTOR_m",vid,d,"magnitude_m",math.sqrt(sum(x*x for x in d)))
+
     print("EXACT_CELL_ID_AND_GEOMETRY_IDENTIFIED; NO_MESH_OR_FSI_MODIFICATIONS")
     print("NOTE: face-plane distances are a geometric aid, not a substitute for native checkMesh verdict.")
 
@@ -358,6 +405,13 @@ def self_test():
     assert abs(foam_compatible_face_metric(faceList[0],cube)[0][2])<1e-13
     score=cell_face_centre_concavity_proxy(list(enumerate(faceList)),cube,0,[0]*6)
     assert all(x["outward_projection_cosine"]<0 for x in score)
+    moved=[tuple(v) for v in cube]
+    moved[4]=(0.,0.,1.000001)
+    details=critical_face_pair_motion_decomposition(cube,moved,faceList[0],faceList[1])
+    assert abs(details["projection_change_m"]-
+               details["due_to_relative_face_centre_m"]-
+               details["due_to_face1_normal_rotation_m"])<1e-12
+    print("ALE_CELL2758_PAIR_MOTION_DECOMPOSITION_SELFTEST_PASS")
     print("ALE_CELL2758_CUBE_FACE_CENTRE_CONCAVITY_TEST_PASS")
     print("ALE_CELL2758_STDLIB_BINARY_FACE_PARSER_SELFTEST_PASS")
 
