@@ -15,7 +15,7 @@ This is HPCC-executable code, **not** a claim that a real replacement FSI job ha
 
 Run on an HPCC login node to download and submit an independent Slurm repair job:
 
-    curl -fLsS https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/261f1e809e2f49545cc66e4ed82ddd7e740aca3a/hpcc/ale-repair-96764/bootstrap-96764-v3.sh -o /tmp/ale-96764-bootstrap.sh && bash /tmp/ale-96764-bootstrap.sh --submit
+    curl -fLsS https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/6e02c9d8e5fbc558e205dc15cc7964b2d19638a1/hpcc/ale-repair-96764/bootstrap-96764-v3.sh -o /tmp/ale-96764-bootstrap.sh && bash /tmp/ale-96764-bootstrap.sh --submit
 
 Substitute --preflight to run checks without submitting, or --status to inspect results. The bootstrap verifies pinned Git blob hashes and Python syntax. It requires no new container builds.
 
@@ -40,4 +40,4 @@ Substitute --preflight to run checks without submitting, or --status to inspect 
 
 ## 2026-11-22 V3 fix
 
-The initial V1 preflight rejected binary `motionReferenceDiffusivity`; V2 added native OpenFOAM binary parsing and passed the user's live preflight. V3 fixes one more discovered issue before real FSI: the existing continuation driver expects the `trial-96763` ROOT as `source_work`, not the nested `runs/hpcc-implicit-002` path. V3 uses a fresh `code-v3` cache and runs only one preflight inside `--submit`. If a V2 repair job is pending or running, V3 refuses duplicate submission; never run both simultaneously.
+The initial V1 preflight rejected binary `motionReferenceDiffusivity`; V2 added native OpenFOAM binary parsing and passed the user's live preflight. V3 fixes one more discovered issue before real FSI: the existing continuation driver expects the `trial-96763` ROOT as `source_work`, not the nested `runs/hpcc-implicit-002` path. V3 uses a fresh `repair-96764-github-20261122-v3/code-v3` recovery directory and runs only one preflight inside `--submit`. If a V2 repair job is pending or running, V3 refuses duplicate submission; never run both simultaneously.
