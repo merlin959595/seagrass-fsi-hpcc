@@ -171,3 +171,16 @@ The user-supplied read-only triage output proves these native run-time mesh chec
 The new 98512 proposal dramatically worsens the earliest-step native ALE mesh quality even though orthogonality/skewness look better, and is **withdrawn**. Both original C2 runs independently and reproducibly fail only at 0.580750 s. The Fluid solver rejects the mesh, CalculiX then loses its preCICE socket. **Never promote 98512 to a restart; never claim the 98512 failed cell ID is 2758 without extracting the newly failed mesh cellSet.**
 
 Unlike the two C2 cases, 98512 saved rank5 geometry at **0.563625**. For an authoritative OpenFOAM cell ID, `native-check-98512-first-window.py` preflights the existence of both 0.563500 and 0.563625 *for all 8 ranks*, copies just polyMesh and fvSchemes/fvSolution to a fresh private diagnostic, and submits a short 8-core native `checkMesh -parallel -time ... -allGeometry -writeSets vtk` run. The resulting private rank-local `concaveCells` cellSets identify the failing MPI rank/cell ID. Its job is **mesh diagnosis only, no fluid/solid coupling**, and native checkMesh may not replicate all custom in-situ face-tet thresholds. No preflight pass or new Slurm job exists until user runs the script on HPCC.
+
+### 2026-11-22 Slurm 98524 confirmed native cell ID for first-step failure
+
+The independent native OpenFOAM v2512 8-rank `checkMesh -parallel -allGeometry -writeSets vtk` on a **private copy** of job98512 geometry completed as Slurm job **98524**, at exactly two stored time states. Tool return code was 0 in both cases, but **native printed mesh verdict must be interpreted separately**:
+
+| Actual time | Native mesh verdict | Concave cells | Face-tet quality | Max nonorth | Max skew |
+|---|---|---|---|---|---|
+| 0.563500 s | `Mesh OK` | none | PASS | 64.6469° | 3.83305 |
+| 0.563625 s | `Failed 2 mesh checks` | **1** | **1 failed face** | 64.6470° | 3.83304 |
+
+The native `processor5/0.563625/polyMesh/sets/concaveCells` contains exactly `1(2758)`; all other ranks 0..4 and 6..7 contain `0()`. **The old C2 late failure and new 98512 first-step failure are the SAME exact rank5/cell2758.** 98512 does not merely transfer a failure to a new region; it accelerates the original failure. No evidence yet identifies the *face tet* as face9315, or confirms the first-step concavity is triggered by the same face-centre pair; the previous face9315→9306 result is from a **different C2 geometry at 0.580750 s**.
+
+The 98512 native failed geometry exists for both 0.5635/0.563625 on all 8 ranks. A new **no-Slurm, read-only** `compare-98512-and-c2-cell2758.py` (using the existing `audit-cell2758-geometry-readonly.py` binary reader) checks the first-window cell face-pair signed normal projection, separates relative face-centre movement vs face-normal rotation, attributes vertex sensitivities and confirms the native concave cell set, comparing separately to 97576-C2 geometry at 0.5805/0.58075. It explicitly warns that those C2 comparison times are later, and the C2 first-step point geometry was not saved. This is the next required diagnostic before any further ALE field redesign. No new production or FSI jobs are permitted solely from this checkMesh finding.
