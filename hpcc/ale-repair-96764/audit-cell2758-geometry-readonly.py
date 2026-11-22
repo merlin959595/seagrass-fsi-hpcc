@@ -293,6 +293,137 @@ def critical_face_pair_motion_decomposition(p0,p1,face1,face2,outward_sign=1):
        "face1_normal_angle_deg":math.degrees(math.acos(max(-1,min(1,dot(u0,u1))))),
     }
 
+
+def boundary_patches(path,n_faces,n_internal):
+    """Read standard text OpenFOAM processor boundary dictionary, no writes."""
+    txt=path.read_text(errors="strict")
+    txt=re.sub(r"/\*.*?\*/","",txt,flags=re.S)
+    txt=re.sub(r"//[^\n]*","",txt)
+    pat=re.compile(r"(?ms)^\s*([A-Za-z_][\w.-]*)\s*\{([^{}]*)\}")
+    result=[]
+    for m in pat.finditer(txt):
+        name,body=m.group(1),m.group(2)
+        a=re.search(r"\bnFaces\s+(\d+)\s*;",body)
+        b=re.search(r"\bstartFace\s+(\d+)\s*;",body)
+        if not (a and b):continue
+        num,start=int(a.group(1)),int(b.group(1))
+        kind=re.search(r"\btype\s+([^\s;]+)\s*;",body)
+        if start<n_internal or start+num>n_faces:
+            raise ValueError("boundary patch invalid face range "+str((name,start,num,n_internal,n_faces)))
+        result.append((name,kind.group(1) if kind else "type-unknown",start,num))
+    if not result:raise ValueError("no boundary patches found "+str(path))
+    ranges=sorted((start,start+n,name) for name,kind,start,n in result)
+    if ranges[0][0]!=n_internal or ranges[-1][1]!=n_faces:
+        raise ValueError("boundary coverage does not match face labels")
+    for (_,end,_),(nxt,_,_) in zip(ranges,ranges[1:]):
+        if end!=nxt:raise ValueError("boundary face ranges not contiguous")
+    return result
+
+def projection_of_face_pair(coords,f1,f2,sign):
+    fc,n=foam_compatible_face_metric(f1,coords)
+    oc,_=foam_compatible_face_metric(f2,coords)
+    n=tuple(sign*v for v in n)
+    nm=math.sqrt(sum(v*v for v in n))
+    if nm<1e-200:raise ValueError("degenerate face")
+    return sum(n[d]*(oc[d]-fc[d]) for d in range(3))/nm
+
+def finite_difference_vertex_attribution(t0,t1,face1,face2,sign,n_steps=16):
+    """Integrated first-order coordinate sensitivities along observed path.
+
+    Counterfactual sensitivity is diagnostic; it is not an FSI/mesh-motion
+    solver and must not be used to edit any physical displacement directly.
+    """
+    vs=sorted(set(face1+face2))
+    actual=[v for v in vs if any(abs(t1[v][j]-t0[v][j])>1e-15 for j in range(3))]
+    score_start=projection_of_face_pair(t0,face1,face2,sign)
+    score_end=projection_of_face_pair(t1,face1,face2,sign)
+    impact={v:0. for v in vs}
+    h=2e-8
+    for k in range(n_steps):
+        alpha=(k+0.5)/n_steps
+        interm=list(t0)
+        for v in actual:
+            interm[v]=tuple(t0[v][j]+alpha*(t1[v][j]-t0[v][j]) for j in range(3))
+        for v in actual:
+            for axis in range(3):
+                dv=t1[v][axis]-t0[v][axis]
+                if abs(dv)<1e-15:continue
+                original=interm[v]
+                moved=list(original)
+                moved[axis]+=h
+                interm[v]=tuple(moved)
+                plus=projection_of_face_pair(interm,face1,face2,sign)
+                moved[axis]-=2*h
+                interm[v]=tuple(moved)
+                minus=projection_of_face_pair(interm,face1,face2,sign)
+                interm[v]=original
+                impact[v]+=(plus-minus)*dv/(2*h*n_steps)
+    total=sum(impact.values())
+    error=total-(score_end-score_start)
+    return {
+        "start_projection_m":score_start,"end_projection_m":score_end,
+        "observed_projection_change_m":score_end-score_start,
+        "sensitivity_sum_m":total,"closure_error_m":error,
+        "vertex_contributions_m":dict(sorted(impact.items(),key=lambda kv:abs(kv[1]),reverse=True)),
+    }
+
+def prior_face_gain_profile(owner,neighbor,graph,centre,faces_of_cell,gain=0.85,rings=8):
+    distances={centre:0}
+    queue=deque([centre])
+    while queue:
+        node=queue.popleft()
+        if distances[node]>=rings:continue
+        for nb in graph.get(node,()):
+            if nb not in distances:
+                distances[nb]=distances[node]+1
+                queue.append(nb)
+    result=[]
+    for fi in faces_of_cell:
+        if fi>=len(neighbor):
+            result.append((fi,"boundary_face_not_modified_by_prior_internal_field",1.))
+            continue
+        near=min(distances.get(int(owner[fi]),rings+1),
+                 distances.get(int(neighbor[fi]),rings+1))
+        if near>=rings:
+            factor=1.
+        else:
+            q=1.-near/rings
+            factor=1.+(gain-1.)*q*q*(3.-2.*q)
+        result.append((fi,"nearest_distance_"+str(near),factor))
+    return result
+
+def audit_motion_constraints(proc,mesh_faces,owner,neighbor,graph,t0,t1):
+    faces_of_cell=[i for i,o in enumerate(owner) if o==FAIL_CELL]
+    faces_of_cell.extend(i for i,n in enumerate(neighbor) if n==FAIL_CELL)
+    observed_patch_vertices=sorted(set(v for fi in faces_of_cell for v in mesh_faces[fi]))
+    patches=boundary_patches(proc/"constant/polyMesh/boundary",len(owner),len(neighbor))
+    membership={v:set() for v in observed_patch_vertices}
+    for pname,ptype,start,nfaces in patches:
+        for fi in range(start,start+nfaces):
+            for v in mesh_faces[fi]:
+                if v in membership:
+                    membership[v].add((pname,ptype))
+    for v in observed_patch_vertices:
+        vector=tuple(t1[v][j]-t0[v][j] for j in range(3))
+        print("CELL2758_VERTEX_CONSTRAINT_AUDIT",v,
+              "start_m",t0[v],"end_m",t1[v],
+              "delta_m",vector,
+              "delta_um",tuple(x*1e6 for x in vector),
+              "boundary_patch_membership",sorted(membership[v]))
+    print("ORIGINAL_C2_GAIN085_FACE_FACTORS",
+          prior_face_gain_profile(owner,neighbor,graph,PRIOR_CENTER,faces_of_cell))
+    fi,fj=9315,9306
+    if not ((owner[fi]==FAIL_CELL or neighbor[fi]==FAIL_CELL) and
+            (owner[fj]==FAIL_CELL or neighbor[fj]==FAIL_CELL)):
+        raise ValueError("critical pair not on expected cell")
+    sign=1 if owner[fi]==FAIL_CELL else -1
+    contributions=finite_difference_vertex_attribution(
+        t0,t1,mesh_faces[fi],mesh_faces[fj],sign)
+    print("CELL2758_VERTEX_PROJECTION_SENSITIVITY",contributions)
+    if abs(contributions["closure_error_m"])>5e-9:
+        raise RuntimeError("finite difference sensitivity did not close - no repair guidance")
+    print("NO_MODIFICATIONS_NO_RESTART_NO_SLURM; SENSITIVITY_NOT_NATIVE_SOLVER")
+
 def main():
     if not os.environ.get("USER"):raise RuntimeError("USER missing")
     d=Path("/data/icto")/os.environ["USER"]/"seagrass-fsi558-runs.sNIpi9/diagnostics/native-concavity-97576-c2"
@@ -374,6 +505,8 @@ def main():
         d=tuple(second_points[vid][i]-first_points[vid][i] for i in range(3))
         print("CRITICAL_VERTEX_VECTOR_m",vid,d,"magnitude_m",math.sqrt(sum(x*x for x in d)))
 
+    if "--constraints" in sys.argv:
+        audit_motion_constraints(proc,mesh_faces,owner,neighbor,graph,first_points,second_points)
     print("EXACT_CELL_ID_AND_GEOMETRY_IDENTIFIED; NO_MESH_OR_FSI_MODIFICATIONS")
     print("NOTE: face-plane distances are a geometric aid, not a substitute for native checkMesh verdict.")
 
@@ -415,6 +548,16 @@ def self_test():
     assert abs(details["projection_change_m"]-
                details["due_to_relative_face_centre_m"]-
                details["due_to_face1_normal_rotation_m"])<1e-12
+    attrib=finite_difference_vertex_attribution(cube,moved,faceList[0],faceList[1],1)
+    assert abs(attrib["closure_error_m"])<1e-10, attrib
+    with tempfile.TemporaryDirectory() as pdir:
+        boundary=Path(pdir)/"boundary"
+        boundary.write_text('FoamFile { class polyBoundaryMesh; }\n2\n(\n'
+                            'fixed\n{\n type wall;\n nFaces 2;\n startFace 6;\n}\n'
+                            'remote\n{\n type processor;\n nFaces 2;\n startFace 8;\n}\n)\n')
+        patches=boundary_patches(boundary,10,6)
+        assert len(patches)==2 and patches[1][1]=="processor"
+    print("ALE_CELL2758_VERTEX_SENSITIVITY_AND_BOUNDARY_PARSER_SELFTEST_PASS")
     print("ALE_CELL2758_PAIR_MOTION_DECOMPOSITION_SELFTEST_PASS")
     print("ALE_CELL2758_CUBE_FACE_CENTRE_CONCAVITY_TEST_PASS")
     print("ALE_CELL2758_STDLIB_BINARY_FACE_PARSER_SELFTEST_PASS")
