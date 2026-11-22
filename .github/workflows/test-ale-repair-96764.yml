@@ -21,9 +21,10 @@ jobs:
         run: |
           set -euo pipefail
           bash -n hpcc/ale-repair-96764/bootstrap-96764.sh
-          test "$(git hash-object hpcc/ale-repair-96764/repair96764.py)" = "65142d725ac753c96ecbb139647d8d112daa0e0a"
+          bash -n hpcc/ale-repair-96764/bootstrap-96764-v2.sh
+          test "$(git hash-object hpcc/ale-repair-96764/repair96764.py)" = "65c116f4b351c2ad56515bb7ad57cf5caf0026a3"
           test "$(git hash-object hpcc/clean-production/segment.py)" = "15a219c75a7e417d707549c2a0e46bbebd761d19"
-          grep -Fq "65142d725ac753c96ecbb139647d8d112daa0e0a" hpcc/ale-repair-96764/bootstrap-96764.sh
+          grep -Fq "65c116f4b351c2ad56515bb7ad57cf5caf0026a3" hpcc/ale-repair-96764/bootstrap-96764-v2.sh
       - name: Check script does not execute HPCC when imported
         run: |
           python3 hpcc/ale-repair-96764/repair96764.py --help
