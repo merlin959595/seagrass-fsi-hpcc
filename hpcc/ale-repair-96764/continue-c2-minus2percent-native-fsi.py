@@ -318,7 +318,7 @@ def classify_user_fsi_queue(lines):
         if not line.strip():
             continue
         cols=line.strip().split("|",2)
-        if len(cols)!=3 or not re.fullmatch(r"\\d+",cols[0]):
+        if len(cols)!=3 or not re.fullmatch(r"\d+",cols[0]):
             stop("UNEXPECTED_SQUEUE_RECORD_FORMAT "+repr(line))
         jid,name,state=cols
         if name=="alec2m2fsi":
