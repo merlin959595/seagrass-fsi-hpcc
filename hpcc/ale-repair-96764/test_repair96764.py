@@ -147,7 +147,7 @@ boundaryField { bladeInterface { type calculated; value uniform 1; } }
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
             (root/"code-v5").mkdir()
-            target=root/"code-v4/segment.py"
+            target=root/"code-v5/segment.py"
             shutil.copy2(source,target)
             self.assertEqual(m.find_core(root),target)
             target.write_bytes(target.read_bytes()+b"\n# integrity test\n")
