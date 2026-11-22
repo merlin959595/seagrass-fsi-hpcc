@@ -145,7 +145,10 @@ def plan(poly,field,mod):
         posfactor=1.+(POS_GAIN-1.)*smooth(dp,POS_RINGS)
         negfactor=1.+(NEG_GAIN-1.)*smooth(dn,NEG_RINGS)
         factor=posfactor*negfactor
-        if not .84<=factor<=1.01:stop("COEFFICIENT_MULTIPLIER_OUTSIDE_BOUNDS "+str(factor))
+        # Analytic combined lower bound is 0.85 * 0.98 = 0.833 when
+        # the two smooth C2/bed regions overlap. The old 0.84 bound
+        # inherited from the +2x trial incorrectly rejects such overlap.
+        if not .832<=factor<=1.000000001:stop("COEFFICIENT_MULTIPLIER_OUTSIDE_BOUNDS "+str(factor))
         new.append(values[fid]*factor)
         c2only.append(values[fid]*posfactor)
         if abs(factor-1.)>1e-13: changed+=1
