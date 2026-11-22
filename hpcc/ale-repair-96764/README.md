@@ -97,3 +97,18 @@ The private isolated eight-MPI OpenFOAM v2512 `checkMesh -allGeometry -writeSets
 - A VTK geometry export exists at `diagnostics/native-concavity-97576-c2/postProcessing/0.58075/concaveCells/concaveCells.vtp`.
 
 Next action: run `audit-cell2758-geometry-readonly.py` on the pre-existing private mesh copy to determine face connectivity, 3535→2758 graph distance and vertex movement from 0.5805 to 0.58075. The diagnostic uses only Python stdlib, does not modify user data or start a Slurm job. It was syntax/fixture tested in GitHub CI; native geometry analysis on actual HPCC data remains to be performed. Do not change any ALE coefficient or submit production until topology and face-plane geometry are examined.
+
+### 2026-11-22 face-centre sign-change identified (read-only v2)
+
+The read-only face-centre and outward-normal geometry proxy for **rank5/cell2758** reproduces the independently proven native checkMesh pass/fail at the two stored snapshots. It flags **face 9315 → face 9306**:
+
+| Time | Signed projection (m) | Normalized projection | Native checkMesh |
+|---|---:|---:|---|
+| 0.580500 s | -2.0652985610429553e-6 | -0.00026723537883100704 | Mesh OK |
+| 0.580750 s | +2.0403909842909781e-7 | +0.000026400283593251755 | 1 concave cell |
+
+The sign crossed zero, a change of +2.269337659472053e-6 m (**+2.269337659 µm**). Faces are 9315 [3918,3919,3922,3923] and 9306 [3916,3917,3919,3918]; vertices 3922/3923 are stationary across these snapshots, while other vertices move 3.83-5.84 µm. Prior centre cell3535 at Y=+0.046203 m has a much safer proxy maximum (~ -2.46e-4 m), while failing cell2758 at Y=-0.046203 m is 7 graph layers away.
+
+**Interpretation limits**: Independent geometry proxy is NOT an OpenFOAM source-code equivalence proof. The prior 8-ring smooth diffusivity change can influence the failed cell but its weight falls off strongly with distance. Do not claim the failure was caused by a particular vertex or that changing scalar diffusivity alone guarantees repair. The actual failing cell, sign-crossing pair and nonzero face motion are observed facts; effective ALE intervention is still experimental.
+
+Updated `audit-cell2758-geometry-readonly.py` decomposes the critical signed-projection change into (a) relative motion of the face centres and (b) rotation of face9315 outward unit normal; test all new repair ideas against this precise failure metric AND the native checkMesh and real two-way FSI guards, not merely the zero crossing. No production calculation has been authorized from the failed trial.
