@@ -291,12 +291,47 @@ def run():
     # After the actual 320 accepted windows and solid checkpoints, re-use
     # the frozen, previously audited afterok production chain. Every segment
     # has a strict native mesh/participant/checkpoint acceptance gate.
-    if any(old.glob("CHAIN-*.json")):
-        stop("EXISTING_PRODUCTION_CHAIN_REQUIRES_MANUAL_RECONCILIATION")
+    previous_chains=sorted(old.glob("CHAIN-*.json"))
+    if previous_chains:
+        print("OLDER_INDEPENDENT_CHAIN_MANIFESTS_LEFT_UNCHANGED",
+              [str(f) for f in previous_chains],flush=True)
     print("C2_MINUS2P_START_QUEUE_ONLY_AFTER_VERIFIED_0P6035",flush=True)
     chain=mod.queue_production(s2,int(job),.6035,old)
+    mod.dump(this/f"AUTO_QUEUE_RESULT-{job}.json",
+             {"status":"AFTEROK_JOBS_SUBMITTED_TO_SLURM",
+              "source_verified_stage2":str(s2),
+              "accepted_stage2_time_s":.6035,
+              "linked_production":chain,
+              "older_chains_unchanged":True})
     print("C2_MINUS2P_AFTEROK_PRODUCTION_JOBS",json.dumps(chain,ensure_ascii=False),flush=True)
 
+
+def classify_user_fsi_queue(lines):
+    """Only running FSI is an immediate resource conflict; pending older jobs
+    remain untouched. Reject duplicates of the exact new job by name in ANY
+    state. Unknown queue statuses fail closed rather than silently ignored.
+    """
+    duplicates=[]
+    running=[]
+    older_pending=[]
+    for line in lines:
+        if not line.strip():
+            continue
+        cols=line.strip().split("|",2)
+        if len(cols)!=3 or not re.fullmatch(r"\\d+",cols[0]):
+            stop("UNEXPECTED_SQUEUE_RECORD_FORMAT "+repr(line))
+        jid,name,state=cols
+        if name=="alec2m2fsi":
+            duplicates.append(line)
+            continue
+        scientific=re.search(r"(?:fsi|ale|seagrass|precice|calculix|ccx)",name,re.I)
+        if not scientific:
+            continue
+        if state=="PENDING":
+            older_pending.append(line)
+        else:
+            running.append(line)
+    return duplicates,running,older_pending
 
 def submit():
     mod,info=source_preflight()
@@ -304,16 +339,25 @@ def submit():
     if this.exists():stop("EXPERIMENT_ROOT_ALREADY_EXISTS_NO_OVERWRITE "+str(this))
     q=subprocess.run(["squeue","-h","-u",os.environ["USER"],
                       "-o","%i|%j|%T"],capture_output=True,text=True,check=True)
-    active=[line for line in q.stdout.splitlines()
-            if re.search(r"(?:fsi|ale|seagrass|precice|calculix|ccx)",line,re.I)]
-    if active:stop("EXISTING_FSI_ALE_JOB_ALREADY_ACTIVE "+repr(active[:20]))
+    duplicate,active,older_pending=classify_user_fsi_queue(q.stdout.splitlines())
+    if duplicate:
+        stop("SAME_C2_MINUS2P_JOB_ALREADY_QUEUED_NO_DUPLICATE "+repr(duplicate))
+    if active:
+        stop("OTHER_FSI_ALE_JOB_NOT_PENDING_NO_PARALLEL_SUBMISSION "+repr(active[:20]))
+    if older_pending:
+        print("OLDER_FSI_JOBS_PENDING_LEFT_UNCHANGED_NO_BLOCK",
+              repr(older_pending[:30]),flush=True)
     if not (old/"backups/trial-96763.manifest.json").is_file() or not (
             old/"backups/trial-96764.manifest.json").is_file():
         stop("VERIFIED_BACKUP_MANIFESTS_NOT_PRESENT")
-    # Fail closed if a previous production chain exists. No new FSI pilots
-    # in parallel with an already queued verified production continuation.
-    if any(old.glob("CHAIN-*.json")):
-        stop("OLD_REPAIR_PRODUCTION_CHAIN_EXISTS_NO_DUPLICATES")
+    # Previous chain manifests may refer to old failed dependencies and
+    # old, still-PENDING Slurm entries. Their mere existence does not
+    # duplicate this NEW independent C2 -2% pilot, with its own UUID-like
+    # Slurm-derived output destinations. Never delete or cancel old jobs.
+    oldchains=sorted(old.glob("CHAIN-*.json"))
+    if oldchains:
+        print("OLDER_CHAIN_MANIFESTS_PRESERVED_NO_OVERWRITE",
+              [str(x) for x in oldchains],flush=True)
     # Verify all external dependencies BEFORE creating the case root.
     mod.native_wrapper(old)
     img=Path.home()/"seagrass-fsi-ompi507-scotch-time.sif"
