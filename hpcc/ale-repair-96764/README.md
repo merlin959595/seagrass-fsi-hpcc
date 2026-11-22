@@ -45,3 +45,21 @@ The initial V1 preflight rejected binary `motionReferenceDiffusivity`; V2 added 
 ## V4 patch — stalled submission after READONLY_PREFLIGHT_PASS
 
 V3's submit function called `find_core(local)`. Although bootstrap downloaded the validated native core to `code-v3/segment.py`, `find_core` searched only `code-v2` / `code`, then performed a potentially enormous recursive scan of old HPCC run data. This explains a submission hanging after preflight without a Slurm job ID. V4 uses only the pinned `repair-96764-github-20261122-v4/code-v4/segment.py` and checks the exact Git blob hash. No recursive filesystem search occurs. CI adds a direct core-resolution test, plus pinned code integrity and bash syntax checks. **Before starting V4, ensure the V3 foreground process has exited; check `squeue -n ale96764repair,ale96764go` and never launch a second repair job if one is active.**
+
+## Job 97576 evidence and V5 fallback (2026-11-22)
+
+Slurm accepted job 97576 from V3 and reported RUNNING on cpu-40-5.
+Its stdout has READONLY_PREFLIGHT_PASS and BACKUP_FULL_TRIAL_SHA256_PASS trial-96763 (14092 entries, 4335472723 bytes).
+Its stderr has Bash parsing errors for repair96764.py ("line 11: from: command not found"), which indicate a Bash process attempted to interpret Python code. This does not itself prove the main FSI job is terminal, as the supplied Slurm snapshot still reports RUNNING and the second backup outcome is unknown.
+
+DO NOT submit V5 while 97576 or any replacement FSI repair/production job is active. Do not cancel a running backup solely because this stderr appeared. Inspect actual Slurm state and full evidence first.
+
+V5 is a contingency for a terminal V3 job without verified FSI completion:
+- A separately pinned container entrypoint run-96764-container.sh explicitly executes /usr/bin/python3 with the controller argument, eliminating nested bash -c command/positional ambiguity;
+- The V5 controller reuses the original V3 recovery root repair-96764-github-20261122-v3, checks SHA256 backup manifests before reuse, and avoids duplicating copies if completed backups already exist;
+- All new code stays in code-v5, preserving V3 code, batch files, trial-96763, trial-96764 and existing backups;
+- The controller rejects an active repair/production job, duplicate V5 submissions, unexpected core binaries, and invalid/incomplete backups;
+- If a previous V3 backup is incomplete, fail closed and preserve it for manual reconciliation instead of deletion.
+
+Only if 97576 has reached terminal state without a validated continuation:
+use hpcc/ale-repair-96764/bootstrap-96764-v5.sh from a fixed Git commit, not an unpinned branch. CI runs parser, binary-file, native wrapper and file-hash checks, but cannot validate live FSI.
