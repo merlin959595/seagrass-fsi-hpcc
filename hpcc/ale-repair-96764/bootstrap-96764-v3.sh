@@ -9,7 +9,7 @@ if [[ "$#" -gt 1 || "$ACTION" != "--submit" && "$ACTION" != "--preflight" && "$A
   exit 2
 fi
 P="/data/icto/$USER/seagrass-fsi558-runs.sNIpi9"
-CODE="$P/repair-96764-github-20261122/code-v3"
+CODE="$P/repair-96764-github-20261122-v3/code-v3"
 mkdir -p "$CODE"
 
 blob_sha() {
@@ -48,8 +48,8 @@ fetch_verified() {
 
 # Pin precisely the reviewed repair controller and frozen, proven FSI core.
 fetch_verified "hpcc/ale-repair-96764/repair96764.py" \
-  "2461180b8c3e2108e8e9750e02c73721d374f89f" \
-  "f402fce64883375ea84dcb73670a7d39b4848527" "repair96764.py"
+  "3471be982c4474d3677134bd55141190ebb1836f" \
+  "39a76ba5d6e60d0383d3a93cc1e3a7932b581290" "repair96764.py"
 fetch_verified "hpcc/clean-production/segment.py" \
   "1b08f9dabb6f3158891289bede0c7a00070340f7" \
   "15a219c75a7e417d707549c2a0e46bbebd761d19" "segment.py"
