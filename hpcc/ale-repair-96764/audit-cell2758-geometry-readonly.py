@@ -186,6 +186,76 @@ def geom(faces_of_cell,vertices,coords,cell,owner):
             "bbox_min_m":bmin,"bbox_max_m":bmax,
             "face_plane_violations":sorted(face_report,key=lambda x:x["max_outside_face_plane_m"],reverse=True)}
 
+
+def foam_compatible_face_metric(vertices,coords):
+    """Area-weighted triangulated face centre and oriented face area vector.
+
+    Same mathematical face geometry used by the OpenFOAM primitiveMesh
+    implementation; native v2512 checkMesh remains authoritative.
+    """
+    p=[coords[k] for k in vertices]
+    n=len(p)
+    if n<3:raise ValueError("face has fewer than 3 points")
+    def sub(a,b):return tuple(a[d]-b[d] for d in range(3))
+    def cross(a,b):
+        return (a[1]*b[2]-a[2]*b[1],
+                a[2]*b[0]-a[0]*b[2],
+                a[0]*b[1]-a[1]*b[0])
+    def mag(a):return math.sqrt(sum(v*v for v in a))
+    if n==3:
+        a,b,c=p
+        center=tuple((a[d]+b[d]+c[d])/3. for d in range(3))
+        normal=tuple(v*0.5 for v in cross(sub(b,a),sub(c,a)))
+        return center,normal
+    provisional=tuple(sum(x[d] for x in p)/n for d in range(3))
+    sum_area=0.0
+    weighted=[0.,0.,0.]
+    normal=[0.,0.,0.]
+    for a,b in zip(p,p[1:]+p[:1]):
+        cp=cross(sub(b,a),sub(provisional,a))
+        ar=mag(cp)
+        sum_area+=ar
+        for d in range(3):
+            weighted[d]+=ar*(a[d]+b[d]+provisional[d])
+            normal[d]+=cp[d]
+    if sum_area<=1e-280:
+        raise ValueError("degenerate near-zero area face")
+    return tuple(v/(3.0*sum_area) for v in weighted),tuple(0.5*x for x in normal)
+
+def cell_face_centre_concavity_proxy(facepairs,coords,cell,owner):
+    """For every ordered face pair F_i F_j evaluate projected out-of-plane test.
+
+    Uses face-centre vs face-centre, NOT vertex vs face: V11/OpenFOAM-style
+    checkConcaveCells uses these. This is a NUMERIC PROXY, verified only if
+    it reproduces the native mesh guard before/after the failure.
+    """
+    metrics={}
+    for face_id,verts in facepairs:
+        c,n=foam_compatible_face_metric(verts,coords)
+        sign=1 if owner[face_id]==cell else -1
+        n=tuple(sign*x for x in n)
+        nm=math.sqrt(sum(x*x for x in n))
+        if nm<=1e-300:raise ValueError("zero face area "+str(face_id))
+        metrics[face_id]=(c,tuple(x/nm for x in n))
+    results=[]
+    for face_i,_ in facepairs:
+        center,normal=metrics[face_i]
+        for face_j,_ in facepairs:
+            if face_i==face_j:continue
+            other,_=metrics[face_j]
+            v=tuple(other[d]-center[d] for d in range(3))
+            length=math.sqrt(sum(x*x for x in v))
+            if length<1e-300:raise ValueError("two face centres coincident")
+            projection=sum(normal[d]*v[d] for d in range(3))
+            cos_angle=projection/length
+            results.append({
+                "face_plane_id":face_i,"other_face_centre_id":face_j,
+                "signed_outward_projection_m":projection,
+                "outward_projection_cosine":cos_angle})
+    results.sort(key=lambda x:x["outward_projection_cosine"],reverse=True)
+    return results
+
+
 def main():
     if not os.environ.get("USER"):raise RuntimeError("USER missing")
     d=Path("/data/icto")/os.environ["USER"]/"seagrass-fsi558-runs.sNIpi9/diagnostics/native-concavity-97576-c2"
@@ -237,6 +307,17 @@ def main():
             print(f"CELL_{cell}_AT_{t}_BBOX_m",r["bbox_min_m"],r["bbox_max_m"])
             for f in r["face_plane_violations"][:4]:
                 print("FACE_PLANE_DIAG",cell,t,f)
+            proxy=cell_face_centre_concavity_proxy(facepairs,coords,cell,owner)
+            print("OPENFOAM_STYLE_FACE_CENTRE_MAX",cell,t,proxy[0])
+            for pair in proxy[:5]:
+                print("FACE_CENTRE_PAIR",cell,t,pair)
+            predicted=proxy[0]["outward_projection_cosine"]>-1.0e-6
+            print("FACE_CENTRE_PROXY_CONCAVE_AT_REFERENCE_1e-6",cell,t,predicted)
+            if cell==2758:
+                expected=(t=="0.58075")
+                if predicted!=expected:
+                    print("WARNING_NATIVE_CHECKMESH_DISAGREES_WITH_FACE_CENTRE_PROXY; DO_NOT_USE_PAIR_AS_REPAIR_TARGET",cell,t)
+
         vids=info[0]["vertex_ids"]
         motions=sorted(
             [(i,math.dist(first_points[i],second_points[i])) for i in vids],
@@ -268,6 +349,16 @@ def self_test():
         actual=points(pt)
         assert len(actual)==8 and actual[0]==(0.,1.,2.) and actual[-1]==(21.,22.,23.)
         assert foam_header(f.read_bytes())[1]=="faceCompactList"
+    cube=[
+      (0.,0.,0.),(1.,0.,0.),(1.,1.,0.),(0.,1.,0.),
+      (0.,0.,1.),(1.,0.,1.),(1.,1.,1.),(0.,1.,1.)]
+    faceList=[
+      [0,3,2,1],[4,5,6,7],[0,4,7,3],
+      [1,2,6,5],[0,1,5,4],[3,7,6,2]]
+    assert abs(foam_compatible_face_metric(faceList[0],cube)[0][2])<1e-13
+    score=cell_face_centre_concavity_proxy(list(enumerate(faceList)),cube,0,[0]*6)
+    assert all(x["outward_projection_cosine"]<0 for x in score)
+    print("ALE_CELL2758_CUBE_FACE_CENTRE_CONCAVITY_TEST_PASS")
     print("ALE_CELL2758_STDLIB_BINARY_FACE_PARSER_SELFTEST_PASS")
 
 if __name__=="__main__":
