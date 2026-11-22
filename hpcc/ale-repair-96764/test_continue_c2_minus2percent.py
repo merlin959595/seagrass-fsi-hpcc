@@ -85,6 +85,38 @@ class C2Minus2PercentNativeContinuationTests(unittest.TestCase):
             self.assertTrue(info["processor_patch_overlap"] is False)
             self.assertEqual(raw[:a].split(b"internalField")[0].split(b"FoamFile")[0],b"")
 
+    def test_older_unrelated_pending_jobs_do_not_block(self):
+        old=[
+            "96767|fsi558cycles|PENDING",
+            "96766|fsi558cycles|PENDING",
+            "96765|fsi558cycles|PENDING",
+            "96359|fsi451cycles|PENDING",
+            "95724|fsi445cycles|PENDING",
+            "95723|fsi445cycles|PENDING",
+            "95722|fsi445cycles|PENDING",
+            "95721|fsi445cycles|PENDING",
+            "93739|fsi91543go|PENDING",
+        ]
+        duplicate,active,pending=bed.classify_user_fsi_queue(old)
+        self.assertFalse(duplicate)
+        self.assertFalse(active)
+        self.assertEqual(pending,old)
+
+    def test_same_pilot_pending_is_duplicate_and_running_other_blocks(self):
+        duplicate,active,pending=bed.classify_user_fsi_queue([
+            "99999|alec2m2fsi|PENDING",
+            "99888|fsi558cycles|RUNNING",
+            "99887|fsi451cycles|PENDING",
+            "99886|storageaudit|RUNNING"
+        ])
+        self.assertEqual(duplicate,["99999|alec2m2fsi|PENDING"])
+        self.assertEqual(active,["99888|fsi558cycles|RUNNING"])
+        self.assertEqual(pending,["99887|fsi451cycles|PENDING"])
+
+    def test_reject_malformed_queue_output(self):
+        with self.assertRaisesRegex(RuntimeError,"UNEXPECTED_SQUEUE_RECORD_FORMAT"):
+            bed.classify_user_fsi_queue(["unexpected format"])
+
     def test_refuse_processor_boundary_overlap(self):
         with tempfile.TemporaryDirectory() as folder:
             poly,field=self.synthetic(Path(folder),processor_overlap=True)
