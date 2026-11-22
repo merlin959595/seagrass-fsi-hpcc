@@ -198,3 +198,33 @@ From saved real private `98512` mesh snapshots at 0.563500→0.563625 s, the ind
 - `compare-98512-and-c2-cell2758.py` now uses a finite **exact order-averaged vertex substitution** (permutation-based counterfactual/Shapley attribution). For up to seven moving face vertices, all endpoint-contribution sums mathematically telescope to the observed full projection change; synthetic 1-mm nonuniform motion and zero-motion CI tests pass. Note: attribution is not a unique physical causal split and counterfactual intermediate vertex layouts are not real FSI states. This diagnostic is strictly read-only and does not start Slurm.
 - C2 0.563625 first-window mesh geometry was not saved. The updated comparison checks whether C2 and 98512 have precisely identical source mesh coordinates at 0.563500, but it cannot claim how C2's individual vertices moved at the unsaved first step.
 - Repair design implication: The failed 2× near-bed diffusivity patch produced a major first-step mesh-motion gradient and a 9.36° rotation at the fixed bed. Do not assume larger coefficient implies safer ALE; no modified field/mesh should become a production restart without *native* first-window mesh validation and full long-time FSI acceptance. No new run authorized from this report.
+
+### 2026-11-22 **repaired large-motion comparison finished**: exact paired-cell diagnostics
+
+The real read-only geometry comparison run by the user on the HPCC completed without errors. It checked **both the independent native checkMesh outputs and the analytic exact signed face-centre projection decomposition**, including an exactly closed symmetric vertex permutation attribution.
+
+**Common starting mesh is identical:** C2 trial97576 and failed bed+2x trial98512 have a maximum **zero** coordinate difference at their common restart t=0.563500 s for processor5. This is proof of matching *starting mesh points*, **not proof that all fields/structural states match**.
+
+| Evidence for rank5 cell2758 | C2 at 0.580500 -> 0.580750 | bed+2x at 0.563500 -> 0.563625 |
+|---|---:|---:|
+| native concave rank5/cell2758 | 1 at later endpoint | 1 at first-step endpoint |
+| native face-tet failure | 0 | 1 |
+| face9315->9306 projection at earlier snapshot | -2.065299 µm | -176.683719 µm |
+| face9315->9306 projection at failing snapshot | +0.204039 µm | +997.371856 µm |
+| signed projection change | +2.269338 µm | +1174.055575 µm |
+| face9315 unit-normal rotation | 0.03713748° | 9.35985603° |
+| contribution from relative centre motion | -2.690150 µm | -66.024801 µm |
+| contribution from face-normal rotation | +4.959488 µm | +1240.080376 µm |
+| exact permutation attribution 3919 | +2.629760 µm | **+689.562337 µm** |
+| exact permutation attribution 3918 | +2.205446 µm | **+517.335372 µm** |
+| exact permutation attribution 3917 | -1.201522 µm | -45.824803 µm |
+| exact permutation attribution 3916 | -1.364347 µm | +12.982669 µm |
+| bed nodes3922/3923 | 0 µm motion | 0 µm motion |
+
+All the symmetric vertex contributions **close exactly to their observed endpoint projection differences**. The two comparisons have **different durations and different absolute physical times**; do not call them a same-time A/B displacement error. C2 first-step point snapshots at 0.563625 were not saved.
+
+**Physics-informed mechanism for investigation, NOT fully proven cause:** OpenFOAM.com v2512 `displacementLaplacianFvMotionSolver::solve()` explicitly re-solves a `fvm::laplacian(diffusivity, cellDisplacement)` after correcting the diffusivity. The motion solver then derives points using the stored displacement/initial reference, so an abrupt, rank5-only *constant* diffusivity field change while restarting from an already deformed mesh can re-distribute the existing **absolute** mesh displacement at the first step, without an equally large new structural boundary movement. The ~1.09 mm interior motion in 125 μs near fixed bed is consistent with this *hypothesis*, but alone cannot prove which combination of initial pointDisplacement, absolute displacement solver, rank-interface consistency, interpolation and preCICE boundary update caused it. Original OF v2512 source: https://api.openfoam.com/2512/displacementLaplacianFvMotionSolver_8C_source.html.
+
+**Immediate constraints:** WITHDRAW the failed +2.0 negative-Y bed patch; do not restart from 98512 or loosen mesh quality. Do not try more gain sweeps without verifying start-state identity (pointDisplacement and points0 in all 8 ranks, native face motion, structural restart). Any eventual redesign must account for the *transient of changing the ALE PDE*, not merely make a better instantaneous geometry at 0.58075. A time-continuous update might be an option, but is unproven and must be shown to satisfy all native mesh, coupled force, displacement and checkpoint gates before long production.
+
+**Next evidence gate, entirely read only**: compare hashes of `fluid/processor{0..7}/0.5635/pointDisplacement` and `0.5635/polyMesh/points` among source trial96763, C2 trial97576 and failed trial98512; inspect `points0` on disk (do not guess its directory), field SHA-256 and mesh-motion configuration. Analyze absolute vs incremental ALE displacement and first-window boundary moves. Do not claim a structural 1 mm jump unless the corresponding structural displacement or interface point values are actually observed.
