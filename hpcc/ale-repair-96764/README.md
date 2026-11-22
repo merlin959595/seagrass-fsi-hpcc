@@ -157,3 +157,17 @@ Evidence from the actual user-provided HPCC logs:
 **Do not retry 98512, do not change mesh guards, do not accept any 98512 snapshot as a new coupled restart.** Maintain source 0.5635 and old checksum backups unchanged.
 
 Read-only script `triage-98512-first-window-readonly.py` compares first and failed guards / fatal context for original C2 jobs97576 & 97854 versus 98512 and reports whether a failed first-window mesh snapshot exists for processor5. This is essential to separate initial ALE reference-field sensitivity from a new failure at the prior cell2758; the latter cannot be assumed from flags alone. In future geometry interventions, prefer removing extreme near-wall coefficient discontinuity and testing face-normal rotation/processor consistency without arbitrary escalating multipliers; do not launch another FSI without a reproducible local geometry reason and native first-window acceptance.
+
+### 2026-11-22 comparative first-step guard audit: C2 replicated twice vs 98512
+
+The user-supplied read-only triage output proves these native run-time mesh checks:
+
+| Case | Native guards | First guard at 0.563625 | First failed guard | Max nonorth at failure | Skewness at failure |
+|---|---:|---|---|---:|---:|
+| C2 job97576 | 880 | concave=0, qualityFailed=0, tetFailed=0 | 0.580750: concave=1, qualityFailed=0, tetFailed=0 | 64.951530574951° | 3.9262362039944 |
+| C2 job97854 | 877 | concave=0, qualityFailed=0, tetFailed=0 | 0.580750: concave=1, qualityFailed=0, tetFailed=0 | 64.951530839123° | 3.9262361875653 |
+| New bed+2x job98512 | 1 | concave=1, qualityFailed=1, tetFailed=1 | 0.563625: first step | 64.646999220486° | 3.8330407419758 |
+
+The new 98512 proposal dramatically worsens the earliest-step native ALE mesh quality even though orthogonality/skewness look better, and is **withdrawn**. Both original C2 runs independently and reproducibly fail only at 0.580750 s. The Fluid solver rejects the mesh, CalculiX then loses its preCICE socket. **Never promote 98512 to a restart; never claim the 98512 failed cell ID is 2758 without extracting the newly failed mesh cellSet.**
+
+Unlike the two C2 cases, 98512 saved rank5 geometry at **0.563625**. For an authoritative OpenFOAM cell ID, `native-check-98512-first-window.py` preflights the existence of both 0.563500 and 0.563625 *for all 8 ranks*, copies just polyMesh and fvSchemes/fvSolution to a fresh private diagnostic, and submits a short 8-core native `checkMesh -parallel -time ... -allGeometry -writeSets vtk` run. The resulting private rank-local `concaveCells` cellSets identify the failing MPI rank/cell ID. Its job is **mesh diagnosis only, no fluid/solid coupling**, and native checkMesh may not replicate all custom in-situ face-tet thresholds. No preflight pass or new Slurm job exists until user runs the script on HPCC.
