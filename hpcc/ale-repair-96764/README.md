@@ -15,7 +15,7 @@ This is HPCC-executable code, **not** a claim that a real replacement FSI job ha
 
 Run on an HPCC login node to download and submit an independent Slurm repair job:
 
-    curl -fLsS https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/77416afcfbcc5f619a9e70ddb91a1ded5cdd4410/hpcc/ale-repair-96764/bootstrap-96764.sh -o /tmp/ale-96764-bootstrap.sh && bash /tmp/ale-96764-bootstrap.sh --submit
+    curl -fLsS https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/029e676d9f1b2491c251adec8bbe332f9985f32c/hpcc/ale-repair-96764/bootstrap-96764.sh -o /tmp/ale-96764-bootstrap.sh && bash /tmp/ale-96764-bootstrap.sh --submit
 
 Substitute --preflight to run checks without submitting, or --status to inspect results. The bootstrap verifies pinned Git blob hashes and Python syntax. It requires no new container builds.
 
