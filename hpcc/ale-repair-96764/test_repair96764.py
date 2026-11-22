@@ -58,6 +58,42 @@ boundaryField { bladeInterface { type calculated; value uniform 1; } }
             with self.assertRaises(RuntimeError):
                 m.field_values(p)
 
+
+    def test_actual_local_face_patch_is_scoped(self):
+        # Mock a rank with the six known incident faces, without HPCC access.
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            fluid=root/"runs/hpcc-implicit-002/fluid"
+            poly=fluid/"processor5/constant/polyMesh"
+            poly.mkdir(parents=True)
+            n=11908
+            owner=[0]*(n+1)
+            nbr=[1]*n
+            for fid, other in zip(sorted(m.EXPECTED_FACES),
+                                  sorted(m.EXPECTED_NEIGHBOURS)):
+                owner[fid]=m.CELL
+                nbr[fid]=other
+            (poly/"owner").write_text(
+                HEADER+str(len(owner))+"\n(\n"+
+                "\n".join(map(str,owner))+"\n)\n")
+            (poly/"neighbour").write_text(
+                HEADER+str(len(nbr))+"\n(\n"+
+                "\n".join(map(str,nbr))+"\n)\n")
+            field=fluid/"processor5/constant/motionReferenceDiffusivity"
+            original=(
+                "FoamFile {version 2.0; format ascii; class surfaceScalarField;}\n"
+                "dimensions [0 0 0 0 0 0 0];\n"
+                f"internalField nonuniform List<scalar>\n{n}\n(\n"+
+                "\n".join(["6000"]*n)+"\n)\n;\n"
+                "boundaryField {}\n"
+            )
+            field.write_text(original)
+            summary=m.patch_private_stage(fluid,1.20,8)
+            self.assertEqual(summary["changed_internal_faces"],6)
+            self.assertEqual(m.field_values(field)[-1].count(6000),n-6)
+            self.assertTrue((fluid.parent/"LOCAL_ALE_REPAIR96764.json").is_file())
+            self.assertEqual(summary["original_sha256"],m.hashlib.sha256(original.encode()).hexdigest())
+
     def test_fail_closed_missing_outputs(self):
         with tempfile.TemporaryDirectory() as d:
             good,why=m.valid_stage(Path(d),144,0.5815)
