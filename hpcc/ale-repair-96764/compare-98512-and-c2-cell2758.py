@@ -90,9 +90,10 @@ def inspect(label,proc,t0,t1,reader):
     print("DELTA_PROJECTION_UM",motion["projection_change_m"]*1e6)
     # Native checkMesh records are the authoritative pass/fail indicators.
     for t in (t0,t1):
-        log=proc.parent/f"checkMesh-{t}.log"
-        if not log.is_file() and label.startswith("97576"):
+        if label.startswith("97576"):
             log=proc.parent/f"checkMesh-r1-{t}.log"
+        else:
+            log=proc.parent/f"checkMesh-{t}.log"
         if log.is_file():
             txt=log.read_text(errors="replace")
             relevant=[line.strip() for line in txt.splitlines()
@@ -124,8 +125,25 @@ def main():
     print("98512_FIRST_STEP_PROJECTION_END_UM",left["end_critical_um"])
     print("C2_LATER_SNAPSHOT_BEFORE_FAILURE_PROJECTION_UM",right["start_critical_um"])
     print("C2_LATER_SNAPSHOT_AFTER_FAILURE_PROJECTION_UM",right["end_critical_um"])
+    base98512=Path("/data/icto")/user/"seagrass-fsi558-runs.sNIpi9/trial-98512-bed2758-s1/runs/hpcc-implicit-002/fluid/processor5/0.5635/polyMesh/points"
+    base97576=Path("/data/icto")/user/"seagrass-fsi558-runs.sNIpi9/trial-97576-repair96764-c2-stage1/runs/hpcc-implicit-002/fluid/processor5/0.5635/polyMesh/points"
+    if base98512.is_file() and base97576.is_file():
+        ptsa=reader.points(base98512)
+        ptsb=reader.points(base97576)
+        if len(ptsa)!=len(ptsb): fail("SOURCE_CHECKPOINT_VERTEX_COUNT_CHANGED")
+        maxdiff=max(math.dist(a,b) for a,b in zip(ptsa,ptsb))
+        print("C2_VS_98512_SAME_TIME_0P5635_INITIAL_MESH_MAX_VERTEX_DIFF_M",maxdiff)
+        print("CAUTION_THIS_IS_ONLY_FLUID_MESH_ALIGNMENT_NOT_FULL_FSI_RESTART_EQUIVALENCE")
+    else:
+        print("C2_VS_98512_INITIAL_MESH_COMPARISON_UNAVAILABLE")
     print("WARNING_TIMEPOINTS_DIFFER: cannot infer relative C2 vs 98512 response "
           "at t=0.563625 because C2 first step was not saved")
+    failedset=root/"native-first-window-98512/processor5/0.563625/polyMesh/sets/concaveCells"
+    if not failedset.is_file():fail("EXPECTED_NATIVE_98512_CONCAVE_CELLSET_MISSING")
+    settxt=failedset.read_text()
+    if not re.search(r"(?m)^1\\(2758\\)\\s*$",settxt):
+        fail("NATIVE_SET_IS_NOT_UNIQUE_CELL2758")
+    print("NATIVE_98512_CELL2758_ONLY_CONCAVE_RANK5_CONFIRMED")
     print("CONCLUSIONS_ONLY_AFTER_CHECKING_NATIVE_PAIR_CROSSING_AND_CELL_SETS")
     print("READONLY_ANALYSIS_FINISHED_NO_OUTPUT_FILES_CHANGED_NO_SLURM_SUBMITTED")
 
