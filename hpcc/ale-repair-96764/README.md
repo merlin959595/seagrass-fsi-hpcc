@@ -63,3 +63,25 @@ V5 is a contingency for a terminal V3 job without verified FSI completion:
 
 Only if 97576 has reached terminal state without a validated continuation:
 use hpcc/ale-repair-96764/bootstrap-96764-v5.sh from a fixed Git commit, not an unpinned branch. CI runs parser, binary-file, native wrapper and file-hash checks, but cannot validate live FSI.
+
+## 2026-11-22 confirmed V3/V5 native mesh failure: fixed-gain scan exhausted
+
+Verified observed numerical results (not inferred from failed process exit codes):
+
+| Job / candidate | Motion reference diffusivity gain | Native ALE guard | Verdict |
+|---|---:|---|---|
+| 97576 / C1 | 1.20, radius 8 | concave=1 at 0.563625 s | failed |
+| 97576 / C2 | 0.85, radius 8 | concave=1 at 0.580750 s | failed |
+| 97576 / C3 | 1.35, radius 12 | concave=1 at 0.563625 s | failed |
+| 97854 / C1 | 1.20, radius 8 | concave=1 at 0.563625 s | failed |
+| 97854 / C2 | 0.85, radius 8 | concave=1 at 0.580750 s | failed |
+
+The structural exit 134 is downstream of the OpenFOAM mesh guard abort; **it is not independent evidence of a CalculiX material divergence**. All V3 stage-1 trials failed; V5 C1/C2 repeated those failure fingerprints, and V5 C3 uses the same already-failed algorithm. The failure is a **geometric concavity guard**, not nonorthogonality, skewness, negative volume or face-tet. Global volume and angle PASS do not override concavity.
+
+The local field patch changed **only the processor5 internal face diffusivity values** near cell3535, with gains/radii from the failed trials. It did not change the reference blockMesh geometry, re-decompose a new grid, or demonstrate consistency across processor patches. The repeated failures establish that simple scalar multipliers are not sufficient; **do not submit another unchanged candidate set**. The exact offending cell(s) at 0.580750 s are *not yet identified*. It is unsound to assume that the last failure is the same processor5/cell3535 as the earlier 0.579375 s failure.
+
+Job 97576 returned REPAIR_NOT_YET_VALIDATED and next_production_submission_permitted=false. The last **fully accepted segment with verified native FSI restart** remains 0.5635 s; a later Time= line or passing per-iteration mesh guard does NOT establish a recoverable coupled checkpoint. The separate read-only forensic report checks candidate transient files across 8 MPI fluid partitions and structural restart; it cannot certify restartability by itself.
+
+**Safe immediate action:** If V5 C1/C2 replicated identical fatal guards and job 97854 remains active, the pinned stop-duplicate-97854.sh will cancel only that Slurm job, leaving source, SHA256 backups and partial candidate data untouched.
+
+**Next engineering gate:** Before new production simulations, identify the actual failing cell/face/rank and its geometry; audit accepted reference geometry versus pointDisplacement at restart, interface/processor diffusivity continuity, and restart force/displacement state. Modify the ALE motion field using a new geometry-based intervention and independently validate one native FSI path past 0.58075 and 0.6035, not three arbitrary constant multipliers. Do not claim a real FSI pass or queue production until that evidence exists.
