@@ -15,7 +15,7 @@ This is HPCC-executable code, **not** a claim that a real replacement FSI job ha
 
 Run on an HPCC login node to download and submit an independent Slurm repair job:
 
-    curl -fLsS https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/029e676d9f1b2491c251adec8bbe332f9985f32c/hpcc/ale-repair-96764/bootstrap-96764.sh -o /tmp/ale-96764-bootstrap.sh && bash /tmp/ale-96764-bootstrap.sh --submit
+    curl -fLsS https://raw.githubusercontent.com/merlin959595/seagrass-fsi-hpcc/261f1e809e2f49545cc66e4ed82ddd7e740aca3a/hpcc/ale-repair-96764/bootstrap-96764-v3.sh -o /tmp/ale-96764-bootstrap.sh && bash /tmp/ale-96764-bootstrap.sh --submit
 
 Substitute --preflight to run checks without submitting, or --status to inspect results. The bootstrap verifies pinned Git blob hashes and Python syntax. It requires no new container builds.
 
@@ -37,3 +37,7 @@ Substitute --preflight to run checks without submitting, or --status to inspect 
 - Disk user quota must be sufficient for two complete trial snapshots on /data/icto; shared-filesystem capacity alone does not prove quota.
 - GitHub cannot directly submit Slurm jobs without an authorized HPCC runner or terminal. The bootstrap command above is the one required HPCC action.
 - Slurm outputs, test variants, backup proofs, and subsequent production chain are saved under /data/icto/$USER/seagrass-fsi558-runs.sNIpi9/repair-96764-github-20261122 and fresh trial directories.
+
+## 2026-11-22 V3 fix
+
+The initial V1 preflight rejected binary `motionReferenceDiffusivity`; V2 added native OpenFOAM binary parsing and passed the user's live preflight. V3 fixes one more discovered issue before real FSI: the existing continuation driver expects the `trial-96763` ROOT as `source_work`, not the nested `runs/hpcc-implicit-002` path. V3 uses a fresh `code-v3` cache and runs only one preflight inside `--submit`. If a V2 repair job is pending or running, V3 refuses duplicate submission; never run both simultaneously.
