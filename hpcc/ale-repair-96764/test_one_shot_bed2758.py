@@ -50,7 +50,7 @@ class GeometryOneShotTests(unittest.TestCase):
                                        "\n".join(map(str,nbr))+"\n)\n")
         # A processor patch that touches the target must prevent submission.
         if processor_overlap:
-            owner[n]=2758
+            owner[n]=2799
             (poly/"owner").write_text(HEAD+str(len(owner))+"\n(\n"+
                                        "\n".join(map(str,owner))+"\n)\n")
         patch_kind="processor" if processor_overlap else "wall"
