@@ -34,7 +34,7 @@ EXPECTED_NEIGHBOURS = {3409, 3531, 3532, 3533, 3534, 20547}
 EXPECTED_FACES = {11491, 11899, 11901, 11903, 11905, 11907}
 EXPECTED_LIB_SHA = "1032420382c07a8138f122199017013ed0aa242410f73a41330cbff199aac1a2"
 ROOT_NAME = "seagrass-fsi558-runs.sNIpi9"
-REPAIR_NAME = "repair-96764-github-20261122-v4"
+REPAIR_NAME = "repair-96764-github-20261122-v3"
 CANDIDATES = ((1.20, 8), (0.85, 8), (1.35, 12))
 FIRST_WINDOWS, SECOND_WINDOWS = 144, 176
 
@@ -318,7 +318,7 @@ def import_driver(path):
 
 def find_core(local):
     """Select the pinned core from the exact release, never recursive search."""
-    path = local / "code-v4/segment.py"
+    path = local / "code-v5/segment.py"
     expected_blob = "15a219c75a7e417d707549c2a0e46bbebd761d19"
     if not path.is_file():
         die("PINNED_EXISTING_FSI_SEGMENT_CORE_NOT_FOUND " + str(path))
@@ -489,6 +489,33 @@ def run_job():
     queue_production(w2, job, best_time, local)
 
 
+def native_wrapper(local):
+    """Use only the checked, explicit-Python container entrypoint."""
+    path = local / "code-v5/run-96764-container.sh"
+    if not path.is_file():
+        die("PINNED_NATIVE_PYTHON_WRAPPER_MISSING " + str(path))
+    data = path.read_bytes()
+    actual = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+    if actual != "ceab0d1daccb3624bcaff44ec27d7caff0b19764":
+        die("NATIVE_PYTHON_WRAPPER_GIT_BLOB_MISMATCH")
+    return path
+
+def native_batch_command(local, script, action, config=None):
+    """Return only the Singularity invocation, with no nested bash -c string."""
+    img = Path.home() / "seagrass-fsi-ompi507-scotch-time.sif"
+    if not img.is_file():
+        die("NATIVE_CONTAINER_MISSING")
+    script = Path(script).resolve(strict=True)
+    wrapper = native_wrapper(local)
+    args = [
+        "singularity", "exec", "--cleanenv",
+        "-B", "/data/icto:/data/icto",
+        str(img), "/bin/bash", str(wrapper), str(script), action
+    ]
+    if config is not None:
+        args.append(str(config))
+    return " ".join(shlex.quote(x) for x in args)
+
 def queue_production(parent_work, parent_job, start_t, local):
     """Only after a real FSI repair replay passes: afterok-linked production."""
     p, a, src, fault, _ = source_paths()
@@ -532,23 +559,7 @@ set -euo pipefail
 module load gnu14/14.2.0 openmpi5/5.0.7
 export SINGULARITYENV_SLURM_JOB_ID="$SLURM_JOB_ID"
 export SINGULARITYENV_USER="$USER"
-singularity exec --cleanenv -B /data/icto:/data/icto {shlex.quote(str(img))} \\
-  /bin/bash --noprofile --norc -c '
-set +eu
-export WM_MPLIB=SYSTEMOPENMPI
-source /usr/lib/openfoam/openfoam2512/etc/bashrc || exit 10
-export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"
-export LD_LIBRARY_PATH="/opt/scotch-compat/lib:/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:$LD_LIBRARY_PATH"
-export PKG_CONFIG_PATH="/opt/precice-3.4.1-ompi5/lib/pkgconfig:/opt/precice-3.4.1-ompi5/lib64/pkgconfig:$PKG_CONFIG_PATH"
-export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
-export PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-ROOT="$HOME/hpcc-fsi/seagrass-implicit-20261111"
-export LD_LIBRARY_PATH="$ROOT/scripts/native/lib:$ROOT/fsi-explicit-test/mesh-guard/lib:$LD_LIBRARY_PATH"
-set -eu
-test "$WM_PROJECT_VERSION" = v2512
-test "$(command -v mpirun)" = /opt/openmpi-5.0.7/bin/mpirun
-exec python3 "$1" --run-one "$2"
-' _ {shlex.quote(str(script))} {shlex.quote(str(config))}
+{native_batch_command(local, script, "--run-one", config)}
 """
         batch.write_text(body)
         batch.chmod(0o500)
@@ -616,8 +627,10 @@ def submit():
         "ale96764repair,ale96764go","-o","%i %T"],capture_output=True,text=True,check=True)
     if active.stdout.strip():
         die("ANOTHER_REPAIR_OR_PRODUCTION_JOB_ALREADY_ACTIVE "+active.stdout.strip())
-    if any(local.glob("RESULT-*.json")) or any(local.glob("CHAIN-*.json")):
-        die("EXISTING_REPAIR_RESULTS_OR_CHAIN_DO_NOT_DUPLICATE_SUBMISSION")
+    if any(local.glob("CHAIN-*.json")):
+        die("EXISTING_REPAIR_CHAIN_DO_NOT_DUPLICATE_SUBMISSION")
+    if any(local.glob("V5-SUBMITTED-*.json")):
+        die("V5_REPAIR_ALREADY_SUBMITTED_DO_NOT_DUPLICATE")
     local.mkdir(exist_ok=True)
     batch_dir = local / "batch"
     batch_dir.mkdir(exist_ok=True)
@@ -638,31 +651,19 @@ def submit():
 set -euo pipefail
 module load gnu14/14.2.0 openmpi5/5.0.7
 export SINGULARITYENV_SLURM_JOB_ID="$SLURM_JOB_ID"
-singularity exec --cleanenv -B /data/icto:/data/icto {shlex.quote(str(img))} \\
-  /bin/bash --noprofile --norc -c '
-set +eu
-export WM_MPLIB=SYSTEMOPENMPI
-source /usr/lib/openfoam/openfoam2512/etc/bashrc || exit 10
-export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"
-export LD_LIBRARY_PATH="/opt/scotch-compat/lib:/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:$LD_LIBRARY_PATH"
-export PKG_CONFIG_PATH="/opt/precice-3.4.1-ompi5/lib/pkgconfig:/opt/precice-3.4.1-ompi5/lib64/pkgconfig:$PKG_CONFIG_PATH"
-export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
-export PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-ROOT="$HOME/hpcc-fsi/seagrass-implicit-20261111"
-export LD_LIBRARY_PATH="$ROOT/scripts/native/lib:$ROOT/fsi-explicit-test/mesh-guard/lib:$LD_LIBRARY_PATH"
-set -eu
-test "$WM_PROJECT_VERSION" = v2512
-test "$(command -v mpirun)" = /opt/openmpi-5.0.7/bin/mpirun
-exec python3 "$1" --run-job
-' _ {shlex.quote(str(script))}
+{native_batch_command(local, script, "--run-job")}
 """
-    batch.write_text(body.replace('export SINGULARITYENV_SLURM_JOB_ID="$SLURM_JOB_ID"', 'export SINGULARITYENV_SLURM_JOB_ID="$SLURM_JOB_ID"\nexport SINGULARITYENV_USER="$USER"'))
+    batch.write_text(body)
     batch.chmod(0o500)
     result = subprocess.run(["sbatch","--parsable",str(batch)],
         text=True,capture_output=True,check=True)
     job=result.stdout.strip().split(";")[0]
     if not re.fullmatch(r"\d+",job):
         die("BAD_SLURM_JOB_ID "+result.stdout)
+    dump(local/f"V5-SUBMITTED-{job}.json",{
+        "job":int(job),"version":"explicit-python-wrapper-v5",
+        "previous_job":97576,"reuse_existing_verified_backup":True
+    })
     print("ALE_96764_REPAIR_JOB_SUBMITTED",job,flush=True)
     print("LOG_DIR",local,flush=True)
     print("UNCHANGED_SOURCE",src,flush=True)
