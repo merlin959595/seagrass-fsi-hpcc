@@ -409,6 +409,123 @@ def run_job():
     print("FINAL_REPAIR96764_RESULT",json.dumps(result,ensure_ascii=False),flush=True)
     if not complete:
         raise SystemExit(3)
+    queue_production(w2, job, best_time, local)
+
+
+def queue_production(parent_work, parent_job, start_t, local):
+    """Only after a real FSI repair replay passes: afterok-linked production."""
+    p, a, src, fault, _ = source_paths()
+    batch_dir = local / "batch"
+    batch_dir.mkdir(exist_ok=True)
+    record = {
+        "type":"ALE96764_NATIVE_VERIFIED_PRODUCTION_CHAIN",
+        "start_time_s":start_t, "all_afterok":True, "jobs":[]
+    }
+    previous_job = int(parent_job)
+    previous_work = Path(parent_work)
+    t = float(start_t)
+    for k in range(1,6):
+        windows = 640
+        t1 = round(t + windows*DT, 9)
+        config = local / f"production-{parent_job}-{k:02d}.json"
+        if config.exists():
+            die("PRODUCTION_CONFIG_ALREADY_EXISTS")
+        cfg = {
+            "source":str(previous_work), "source_job":previous_job,
+            "start_t":t,"end_t":t1,"windows":windows,
+            "source_hash_reference":EXPECTED_LIB_SHA
+        }
+        dump(config, cfg)
+        batch = batch_dir / f"production-{parent_job}-{k:02d}.sbatch"
+        if batch.exists():
+            die("PRODUCTION_BATCH_ALREADY_EXISTS")
+        script = Path(__file__).resolve(strict=True)
+        img = Path.home()/"seagrass-fsi-ompi507-scotch-time.sif"
+        body = f"""#!/bin/bash
+#SBATCH --partition=cpu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=24G
+#SBATCH --time=3-00:00:00
+#SBATCH --job-name=ale96764go
+#SBATCH --output={local}/prod-%j.out
+#SBATCH --error={local}/prod-%j.err
+set -euo pipefail
+module load gnu14/14.2.0 openmpi5/5.0.7
+export SINGULARITYENV_SLURM_JOB_ID="$SLURM_JOB_ID"
+export SINGULARITYENV_USER="$USER"
+singularity exec --cleanenv -B /data/icto:/data/icto {shlex.quote(str(img))} \\
+  /bin/bash --noprofile --norc -c '
+set +eu
+export WM_MPLIB=SYSTEMOPENMPI
+source /usr/lib/openfoam/openfoam2512/etc/bashrc || exit 10
+export PATH="/opt/precice-3.4.1-ompi5/bin:/opt/openmpi-5.0.7/bin:$PATH"
+export LD_LIBRARY_PATH="/opt/scotch-compat/lib:/opt/precice-3.4.1-ompi5/lib:/opt/precice-3.4.1-ompi5/lib64:/opt/openmpi-5.0.7/lib:/opt/openmpi-5.0.7/lib64:$LD_LIBRARY_PATH"
+export PKG_CONFIG_PATH="/opt/precice-3.4.1-ompi5/lib/pkgconfig:/opt/precice-3.4.1-ompi5/lib64/pkgconfig:$PKG_CONFIG_PATH"
+export OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ROOT="$HOME/hpcc-fsi/seagrass-implicit-20261111"
+export LD_LIBRARY_PATH="$ROOT/scripts/native/lib:$ROOT/fsi-explicit-test/mesh-guard/lib:$LD_LIBRARY_PATH"
+set -eu
+test "$WM_PROJECT_VERSION" = v2512
+test "$(command -v mpirun)" = /opt/openmpi-5.0.7/bin/mpirun
+exec python3 "$1" --run-one "$2"
+' _ {shlex.quote(str(script))} {shlex.quote(str(config))}
+"""
+        batch.write_text(body)
+        batch.chmod(0o500)
+        proc = subprocess.run(["sbatch","--parsable",
+            f"--dependency=afterok:{previous_job}",str(batch)],
+            text=True,capture_output=True,check=True)
+        jid = proc.stdout.strip().split(";")[0]
+        if not re.fullmatch(r"\d+",jid):
+            die("SLURM_BAD_PRODUCTION_JOB_ID "+proc.stdout)
+        record["jobs"].append({
+            "job":int(jid),"afterok":previous_job,
+            "source":str(previous_work),"from_t":t,"to_t":t1,
+            "windows":windows
+        })
+        previous_job=int(jid)
+        previous_work=p/f"trial-{jid}-repair96764-prod"
+        t=t1
+        print("ALE96764_PRODUCTION_AFTEROK_QUEUED",jid,t1,flush=True)
+    dump(local/f"CHAIN-{parent_job}.json",record)
+    return record
+
+def run_one(config_path):
+    job = os.environ.get("SLURM_JOB_ID","")
+    if not re.fullmatch(r"\d+",job):
+        die("SLURM_JOB_ID_REQUIRED_FOR_PRODUCTION")
+    preflight()
+    p,a,orig,fault,local=source_paths()
+    cfg=json.loads(Path(config_path).read_text())
+    if cfg.get("source_hash_reference")!=EXPECTED_LIB_SHA:
+        die("PINNED_PRODUCTION_LIBRARY_CONFIG_MISMATCH")
+    source=Path(cfg["source"]).resolve(strict=True)
+    if not source.is_relative_to(p):
+        die("PRODUCTION_SOURCE_OUTSIDE_ISOLATED_DATA_ROOT")
+    target=p/f"trial-{job}-repair96764-prod"
+    if target.exists():
+        die("PRODUCTION_DESTINATION_EXISTS")
+    windows=int(cfg["windows"])
+    if not 2 <= windows <= 1500:
+        die("PRODUCTION_WINDOWS_OUTSIDE_VALIDATED_RANGE")
+    driver=import_driver(a/"resume-cycles.py")
+    core=find_core(local)
+    os.environ["FSI_DELTA_CORE_PATH"]=str(core)
+    try:
+        driver.run_trial(Path.home()/"hpcc-fsi",source,target,windows,core,int(cfg["source_job"]),False)
+        good,reason=valid_stage(target,windows,float(cfg["end_t"]))
+    except BaseException as exc:
+        good,reason=False,"EXCEPTION_"+repr(exc)
+    result={"job":int(job),"source":str(source),"target":str(target),
+            "start_t":cfg["start_t"],"end_t":cfg["end_t"],
+            "pass":good,"reason":reason}
+    dump(local/f"PRODUCTION-RESULT-{job}.json",result)
+    print("ALE96764_PRODUCTION_SEGMENT",json.dumps(result,ensure_ascii=False),flush=True)
+    if not good:
+        raise SystemExit(3)
 
 def submit():
     preflight()
@@ -460,7 +577,7 @@ test "$(command -v mpirun)" = /opt/openmpi-5.0.7/bin/mpirun
 exec python3 "$1" --run-job
 ' _ {shlex.quote(str(script))}
 """
-    batch.write_text(body)
+    batch.write_text(body.replace('export SINGULARITYENV_SLURM_JOB_ID="$SLURM_JOB_ID"', 'export SINGULARITYENV_SLURM_JOB_ID="$SLURM_JOB_ID"\nexport SINGULARITYENV_USER="$USER"'))
     batch.chmod(0o500)
     result = subprocess.run(["sbatch","--parsable",str(batch)],
         text=True,capture_output=True,check=True)
@@ -478,6 +595,8 @@ def status():
     q = subprocess.run(["squeue","-h","-u",os.environ["USER"],
        "-n","ale96764repair","-o","%i %T %R"],capture_output=True,text=True)
     print("SLURM_REPAIR_JOBS",q.stdout.strip() if q.returncode==0 else q.stderr)
+    for p in sorted(local.glob("CHAIN-*.json")):
+        print("QUEUED_CHAIN",p.read_text()[:12000])
 
 def main():
     parser = argparse.ArgumentParser()
@@ -486,10 +605,12 @@ def main():
     actions.add_argument("--submit",action="store_true")
     actions.add_argument("--run-job",action="store_true",help=argparse.SUPPRESS)
     actions.add_argument("--status",action="store_true")
+    actions.add_argument("--run-one",type=Path,help=argparse.SUPPRESS)
     args=parser.parse_args()
     if args.preflight: preflight()
     elif args.submit: submit()
     elif args.run_job: run_job()
+    elif args.run_one is not None: run_one(args.run_one)
     else: status()
 
 if __name__ == "__main__":
