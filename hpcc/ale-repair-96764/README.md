@@ -299,3 +299,18 @@ Actual user's HPCC output of `audit-ale-ramp-lib-and-cellDisplacement-readonly.p
 **Conclusion boundary**: In tested saved on-disk settings the sole differential input is the rank5 reference diffusion field, and the same cell2758 first-step failure is correlated with that modification. Given large interior motion (up to ~1.09 mm) and stationary physical bed, a new elliptic absolute mesh displacement equilibrium is the strongest explanatory mechanism. But do not state the exact *custom* ramp's current-time behaviour as proven without its C++ source or equivalent statically decoded function.
 
 **Next gate**: local read-only search for C++ source or ELF debug information (NOT running the .so). If the model's time interpolation can be verified, only then design a physically continuous transition from the C2 known first-step pass state to a gentle near-bed modified field. Any such scheme needs the identical 0.5635 t0 and **two-window native FSI first-step meshCo, concave and face-tet PASS** before testing long-term avoidance at 0.580750; do not automatically launch production. C2 itself still fails at .58075, so merely undoing 98512 does not solve the original late geometric limitation.
+
+### 2026-11-22 partial ELF disassembly: ramp-time smoothstep **verified**
+
+User executed `nm -D -S -C` and `objdump -d --disassemble='_ZNK4Foam19seagrass558RampFileclEv'` against the exact pinned custom `.so` (`sha256=1032420382c07a8138f122199017013ed0aa242410f73a41330cbff199aac1a2`). No custom `*.C` or `*.H` file found inside the helper directory at maxdepth7, and `readelf -W -S` found no `.debug_info`, `.debug_line`, `.gnu_debuglink`.
+
+The `operator()() const` symbol address is **0x20780**, length **0x0e51** bytes, so stop-address is **0x215d1**. The user pasted **only the first 160 disassembly lines**, ending at ~0x209dd; the rest of the function is **not yet inspected**.
+
+In the actually supplied instructions, the object members at offsets `+0x1b0` and `+0x1b8` are used to form `(meshTime - time0)/(time1-time0)`. Branches implement saturation to [0,1]. At 0x20930–0x2094c the coefficient is transformed as `s = u*u*(3-2*u)` (smoothstep). At 0x2081b–0x20859, two other scalar members at offsets `+0x1c0`/`+0x1c8` are interpolated `a + s*(b-a)` and a dynamic string `exponent` is passed into OpenFOAM field creation machinery. Given the exact 6 input tokens `0.5535 0.5565 0.925 1.000 1.5 -0.35`, a **very strong but not yet constructor-verified interpretation** is:
+- `time0 = 0.5535`, `time1 = 0.5565`
+- first interpolated quantity is `exponent` from `0.925` to `1.000`
+- `1.5`, `-0.35` are other parameters requiring the unexamined remainder of the implementation to interpret.
+
+At the actual FSI recovery `t=0.5635`, `t>0.5565`, so this existing smoothstep is **already saturated at 1** if the inferred time interpretation is confirmed. Replacing the rank5 reference face diffusivity after this historical transition therefore **does not automatically gain a new gradual transition**. This supports the ALE re-equilibration hypothesis, but does not establish the complete spatial coefficient formula or rule out solver state/processor interaction.
+
+**Do not change model time constants, target field, or solver based on this partial ELF disassembly.** Next read-only evidence: dump the remaining full named `operator()` disassembly (prefer `objdump -d -M intel --no-show-raw-insn --disassemble=...` to a single `/tmp` text file) and ELF data literal context. Confirm constructor input order and full field expression with source if it can be found; do not execute or patch the `.so`. Then design continuity-respecting mesh motion, first-window native gate and bounded FSI verification.
