@@ -234,3 +234,28 @@ All the symmetric vertex contributions **close exactly to their observed endpoin
 Pinned script: `hpcc/ale-repair-96764/audit-restart-state-96763-c2-98512-readonly.py`. It checks SHA-256 equality in all **eight MPI partitions**, at the **identical physical restart timestamp 0.5635 s** in the certified source 96763, C2 97576, and failed bed+2x 98512. Checked fields: polyMesh/points, pointDisplacement, U, p, phi, constant reference motion diffusivity, fvSchemes/fvSolution, and present points0/dynamicMeshDict variants. It prints differences only and fails closed if required snapshot files are missing. This is a *read-only integrity and configuration comparison*, NOT a simulation validation or dynamic-mesh motion proof.
 
 If the mesh coordinates, pointDisplacement and other initial states are unchanged but the motion diffusivity differs, abrupt re-equilibration of the *absolute displacement* elliptic mesh solution becomes the leading hypothesis for 98512's approximately 1-mm first-step interior movement. Even then, the long-time C2 near-concavity at 0.58075 remains a separate original geometry-robustness problem. If the restart displacement/reference states differ, first resolve that inconsistency instead. Do not alter original source or claim physical restart is validated from hashes.
+
+### 2026-11-22 completed 8-rank 0.563500 s restart-state SHA audit
+
+The user's actual HPCC execution of `audit-restart-state-96763-c2-98512-readonly.py` returned:
+
+```text
+DIFFERENT reference_motion_diffusivity rank 5 {
+ "source_96763": "5d176429081ec91d",
+ "C2_97576": "f5d61356b5be71b3",
+ "bad_gain2_98512": "7cfdb551c2b500fe"
+}
+HASH_AUDIT_SUMMARY {
+ "counts":{"different":1,"missing":24,"same_all":71},
+ "different_ranks_by_field":{"reference_motion_diffusivity":[5]}
+}
+NO_FSI_SUBMITTED; HASH_MATCH_IS_NOT_NATIVE_RESTART_VALIDATION
+```
+
+At the common restart `t=0.563500 s`, the tested files across 8 fluid partitions (including `pointDisplacement`, `polyMesh/points`, `U`, `p`, `phi`) have matching SHA-256 in all three cases; the **only identified saved file difference is rank5/constant/motionReferenceDiffusivity**. The 24 missing comparisons are optional locations such as `points0`/dynamicMeshDict candidates; **the audit does not identify which keys were missing or prove whether points0 is present under another path**. Thus avoid claiming full ALE solver in-memory state or structural restart equivalence.
+
+Combined with independent native mesh checks: **C2 (gain0.85 at positive Y) passes the first 0.563625 s check and fails at 0.580750 s**, whereas the rank5 C2+negative-Y gain2.0 modification in **98512 fails at 0.563625 s** with 1 concave cell2758 + 1 face-tet failure and 9.35986 deg rotation of face9315. Earlier C1 (gain1.20 radius8 at positive-Y cell3535) also failed in the first window, reinforcing that changing diffusivity at an already deformed restart is sensitive. This is a controlled file-level contrast, but native motion-law and initial points0 are not yet verified.
+
+**Strongest supported working hypothesis:** the changed spatial diffusivity of the displacement-Laplacian ALE solver caused an initial redistribution of absolute mesh displacement near the pinned bed. Do not claim a proved root cause from hash equality alone; check the custom seagrass558RampFile C++ implementation, time update of the coefficient field, processor coupling, and points0 before proposing a continuous-time coefficient ramp or a mesh redesign.
+
+**Engineering gate:** Reuse original untouched 0.5635 s FSI source and SHA-verified backups; withdraw 98512 gain2.0; do not use any failed snapshots as accepted restarts. Any new candidate needs (i) documented coefficient-transition model, (ii) native guard PASS in a two-window short test before 144-window or longer native FSI, (iii) preserve native concavity, face-tet, non-orthogonality<=65 deg, skew<4, meshCo<=0.5 and participant exit codes 0, (iv) force/displacement and 8-rank/solid checkpoint acceptance, (v) cross 0.580750 and subsequently 0.603500. No automatic production job until validated.
