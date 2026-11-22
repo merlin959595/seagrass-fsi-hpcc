@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import struct
+import shutil
 import unittest
 
 HERE=Path(__file__).resolve().parent
@@ -137,6 +138,23 @@ boundaryField { bladeInterface { type calculated; value uniform 1; } }
             self.assertEqual(m.field_values(field)[-1].count(6000),n-6)
             self.assertTrue((fluid.parent/"LOCAL_ALE_REPAIR96764.json").is_file())
             self.assertEqual(summary["original_sha256"],m.hashlib.sha256(original.encode()).hexdigest())
+
+
+    def test_pinned_core_resolution_without_recursive_hpc_scan(self):
+        source=HERE.parent/"clean-production/segment.py"
+        self.assertTrue(source.is_file())
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            (root/"code-v4").mkdir()
+            target=root/"code-v4/segment.py"
+            shutil.copy2(source,target)
+            self.assertEqual(m.find_core(root),target)
+            target.write_bytes(target.read_bytes()+b"\n# integrity test\n")
+            with self.assertRaisesRegex(RuntimeError,"PINNED_FSI_SEGMENT_CORE_GIT_BLOB_MISMATCH"):
+                m.find_core(root)
+            target.unlink()
+            with self.assertRaisesRegex(RuntimeError,"PINNED_EXISTING_FSI_SEGMENT_CORE_NOT_FOUND"):
+                m.find_core(root)
 
     def test_fail_closed_missing_outputs(self):
         with tempfile.TemporaryDirectory() as d:
