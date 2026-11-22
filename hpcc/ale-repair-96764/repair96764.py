@@ -404,6 +404,11 @@ def run_job():
         die("SLURM_COMPUTE_ALLOCATION_REQUIRED")
     preflight()
     p, a, source, fault, local = source_paths()
+    # The native resume-cycles driver accepts trial ROOT, not its
+    # runs/hpcc-implicit-002 child. Stage2 already passes a trial root.
+    source_trial = source.parent.parent
+    if source_trial / "runs/hpcc-implicit-002" != source:
+        die("SOURCE_WORK_ROOT_LAYOUT_INVALID")
     local.mkdir(exist_ok=True)
     (local/"backups").mkdir(exist_ok=True)
     # The original three-day 91543 source was separately backed up and
@@ -436,7 +441,7 @@ def run_job():
             return result
         driver.build_private_stage = patched_stage
         try:
-            driver.run_trial(Path.home()/"hpcc-fsi",source,w1,FIRST_WINDOWS,core,96763,False)
+            driver.run_trial(Path.home()/"hpcc-fsi",source_trial,w1,FIRST_WINDOWS,core,96763,False)
             good1,why1 = valid_stage(w1,FIRST_WINDOWS,round(T0+FIRST_WINDOWS*DT,9))
         except BaseException as e:
             good1,why1 = False,"EXCEPTION_"+repr(e)
