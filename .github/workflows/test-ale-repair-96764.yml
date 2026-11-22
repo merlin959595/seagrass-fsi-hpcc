@@ -1,0 +1,22 @@
+name: Validate ALE 96764 repair harness
+on:
+  push:
+    branches:
+      - fix/ale-concave-96764-20261122
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test harness with synthetic OpenFOAM file snippets
+        run: |
+          set -euo pipefail
+          python3 -m py_compile hpcc/ale-repair-96764/repair96764.py hpcc/ale-repair-96764/test_repair96764.py
+          python3 hpcc/ale-repair-96764/test_repair96764.py -v
+      - name: Check script does not execute HPCC when imported
+        run: |
+          python3 hpcc/ale-repair-96764/repair96764.py --help
