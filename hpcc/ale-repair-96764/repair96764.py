@@ -104,22 +104,93 @@ def read_labels(path):
         endian + code, data[starts[0]:starts[0]+n*width])]
 
 def field_values(path):
+    """Read ASCII or binary OpenFOAM surfaceScalarField internal values.
+
+    Returns (original bytes, data_start, data_end, values). Binary reading uses
+    scalar width/endianness declared in FoamFile.arch, and preserves all bytes
+    outside the actual internalField payload (including boundaryField).
+    """
     data = Path(path).read_bytes()
-    if b"format      ascii;" not in data and not re.search(rb"\bformat\s+ascii\s*;", data):
-        die("REFERENCE_FIELD_MUST_BE_ASCII " + str(path))
+    hd = re.search(rb"FoamFile\s*\{.*?\}", data, re.S)
+    if not hd:
+        die("REFERENCE_FIELD_HEADER_MISSING " + str(path))
+    head = hd.group()
+    fmt_match = re.search(rb"\bformat\s+(ascii|binary)\s*;", head)
+    if not fmt_match:
+        die("REFERENCE_FIELD_FORMAT_UNKNOWN " + str(path))
+    fmt = fmt_match.group(1)
+    arch_match = re.search(rb'arch\s+"([^"]+)"', head)
+    arch = arch_match.group(1).decode("ascii") if arch_match else ""
     m = re.search(
         rb"internalField\s+nonuniform\s+List<scalar>\s*(\d+)\s*\(",
-        data)
+        data[hd.end():])
     if not m:
         die("REFERENCE_FIELD_INTERNAL_LIST_MISSING " + str(path))
     n = int(m.group(1))
-    end = data.find(b")", m.end())
-    if end < 0 or not re.match(rb"\s*;", data[end+1:end+20]):
-        die("REFERENCE_FIELD_INVALID_TERMINATOR " + str(path))
-    vals = [float(s) for s in data[m.end():end].split()]
-    if len(vals) != n or not all(math.isfinite(v) and v > 0 for v in vals):
-        die("REFERENCE_FIELD_VALUES_INVALID " + str(path))
-    return data, m.end(), end, vals
+    if not 1 <= n <= 10000000:
+        die("REFERENCE_FIELD_COUNT_OUT_OF_BOUNDS " + str(n))
+    list_start = hd.end() + m.end()
+
+    def validate(values):
+        if len(values) != n or not all(math.isfinite(v) and v > 0 for v in values):
+            die("REFERENCE_FIELD_VALUES_INVALID " + str(path))
+        return values
+
+    if fmt == b"ascii":
+        end = data.find(b")", list_start)
+        if end < 0 or not re.match(rb"\s*;", data[end+1:end+64]):
+            die("REFERENCE_FIELD_ASCII_TERMINATOR_INVALID " + str(path))
+        try:
+            values = validate([float(x) for x in data[list_start:end].split()])
+        except ValueError as exc:
+            die("REFERENCE_FIELD_ASCII_PARSE_FAILED " + str(exc))
+        return data, list_start, end, values
+
+    if "scalar=64" in arch:
+        width, code = 8, "d"
+    elif "scalar=32" in arch:
+        width, code = 4, "f"
+    else:
+        die("REFERENCE_FIELD_BINARY_ARCH_MISSING_SCALAR_WIDTH " + str(path))
+    if "MSB" in arch:
+        endian = ">"
+    elif "LSB" in arch:
+        endian = "<"
+    else:
+        die("REFERENCE_FIELD_BINARY_ARCH_MISSING_ENDIANNESS " + str(path))
+    candidates = []
+    for start in range(list_start, min(list_start + 17, len(data))):
+        if data[list_start:start].strip():
+            break
+        end = start + n * width
+        if end <= len(data) and re.match(rb"\s*\)\s*;", data[end:end+128]):
+            candidates.append((start, end))
+    if len(candidates) != 1:
+        die("REFERENCE_FIELD_BINARY_PAYLOAD_BOUNDARY_AMBIGUOUS " +
+            f"{path} candidates={candidates} count={n} width={width}")
+    start, end = candidates[0]
+    values = validate([x[0] for x in struct.iter_unpack(endian + code, data[start:end])])
+    return data, start, end, values
+
+def encode_field_payload(original, values):
+    hd = re.search(rb"FoamFile\s*\{.*?\}", original, re.S)
+    if not hd:
+        die("ENCODE_FIELD_MISSING_FOAM_HEADER")
+    head = hd.group()
+    fmt = re.search(rb"\bformat\s+(ascii|binary)\s*;", head)
+    if not fmt:
+        die("ENCODE_FIELD_FORMAT_UNKNOWN")
+    if fmt.group(1) == b"ascii":
+        return ("\n" + "\n".join(f"{v:.16g}" for v in values) + "\n").encode("ascii")
+    a = re.search(rb'arch\s+"([^"]+)"', head)
+    if not a:
+        die("ENCODE_BINARY_FIELD_ARCH_MISSING")
+    arch = a.group(1).decode("ascii")
+    endian = ">" if "MSB" in arch else "<" if "LSB" in arch else None
+    code = "d" if "scalar=64" in arch else "f" if "scalar=32" in arch else None
+    if endian is None or code is None:
+        die("ENCODE_BINARY_FIELD_UNSUPPORTED_ARCH " + arch)
+    return struct.pack(endian + str(len(values)) + code, *values)
 
 def neighbours_and_faces(poly):
     owner = read_labels(poly / "owner")
@@ -186,9 +257,7 @@ def patch_private_stage(fluid, gain, rings):
         die("FRESH_STAGE_FIELD_OR_MESH_MISSING")
     before_sha = sha(path)
     data, start, end, vals, new_vals, summary = plan_modifications(poly, path, gain, rings)
-    patched = data[:start] + (
-        "\n" + "\n".join(f"{v:.16g}" for v in new_vals) + "\n"
-    ).encode("ascii") + data[end:]
+    patched = data[:start] + encode_field_payload(data, new_vals) + data[end:]
     tmp = path.with_name(path.name + ".repair96764.tmp")
     if tmp.exists():
         die("STALE_TEMP_FILE_REQUIRES_INVESTIGATION")
@@ -248,7 +317,7 @@ def import_driver(path):
     return mod
 
 def find_core(local):
-    choices = [local/"code/segment.py"]
+    choices = [local/"code-v2/segment.py", local/"code/segment.py"]
     choices += sorted(Path.home().glob("hpcc-fsi/three-day-91543-code-*/segment.py"))
     choices += sorted(Path.home().glob("hpcc-fsi/three-day-resume-20261119/**/segment.py"))
     for path in choices:
