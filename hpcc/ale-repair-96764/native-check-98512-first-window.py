@@ -163,7 +163,7 @@ for rank in 0 1 2 3 4 5 6 7; do
         F="__DEST__/processor$rank/$t/polyMesh/sets/concaveCells"
         if [ -s "$F" ]; then
             echo "RANK=$rank TIME=$t"
-            tail -n 8 "$F" | head -n 4
+            grep -aE "^[[:space:]]*[0-9]+\\(" "$F" | tail -2 || true
         fi
     done
 done
