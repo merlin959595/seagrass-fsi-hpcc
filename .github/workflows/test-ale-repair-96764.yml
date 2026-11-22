@@ -31,6 +31,8 @@ jobs:
           python3 hpcc/ale-repair-96764/test_compare_98512_exact.py -v
           python3 hpcc/ale-repair-96764/native-check-98512-first-window.py --help
           python3 hpcc/ale-repair-96764/test_one_shot_bed2758.py -v
+          python3 -m py_compile hpcc/ale-repair-96764/continue-c2-minus2percent-native-fsi.py
+          python3 hpcc/ale-repair-96764/test_continue_c2_minus2percent.py -v
       - name: Check frozen bootstrap, source pinning and bash syntax
         run: |
           set -euo pipefail
