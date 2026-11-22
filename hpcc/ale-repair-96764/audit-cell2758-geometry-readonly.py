@@ -78,7 +78,9 @@ def faces(path,expected,npoints):
     b=path.read_bytes()
     end,typ,fmt,width,endian=foam_header(b)
     if typ=="faceCompactList" and fmt=="binary":
-        offsets,pos=binary_label_block(b,end,width,endian)
+        first=re.search(rb"(?m)^\s*\d+\s*\(",b[end:end+65536])
+        if not first: raise ValueError("compact faces first offsets block missing")
+        offsets,pos=binary_label_block(b,end+first.start(),width,endian)
         content,pos=binary_label_block(b,pos,width,endian)
         if len(offsets)!=expected+1 or offsets[0]!=0 or offsets[-1]!=len(content):
             raise ValueError("faceCompactList offset/contents mismatch "+str((len(offsets),len(content),expected)))
