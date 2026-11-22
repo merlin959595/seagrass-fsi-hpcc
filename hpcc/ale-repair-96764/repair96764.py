@@ -317,13 +317,16 @@ def import_driver(path):
     return mod
 
 def find_core(local):
-    choices = [local/"code-v2/segment.py", local/"code/segment.py"]
-    choices += sorted(Path.home().glob("hpcc-fsi/three-day-91543-code-*/segment.py"))
-    choices += sorted(Path.home().glob("hpcc-fsi/three-day-resume-20261119/**/segment.py"))
-    for path in choices:
-        if path.is_file():
-            return path
-    die("PINNED_EXISTING_FSI_SEGMENT_CORE_NOT_FOUND")
+    """Select the pinned core from the exact release, never recursive search."""
+    path = local / "code-v4/segment.py"
+    expected_blob = "15a219c75a7e417d707549c2a0e46bbebd761d19"
+    if not path.is_file():
+        die("PINNED_EXISTING_FSI_SEGMENT_CORE_NOT_FOUND " + str(path))
+    data = path.read_bytes()
+    actual_blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+    if actual_blob != expected_blob:
+        die("PINNED_FSI_SEGMENT_CORE_GIT_BLOB_MISMATCH " + str(path))
+    return path
 
 def snapshot_manifest(root):
     records = []
