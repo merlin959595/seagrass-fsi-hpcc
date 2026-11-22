@@ -8,6 +8,7 @@ No FSI and no additional checkMesh runs.
 """
 from pathlib import Path
 import hashlib
+import itertools
 import importlib.util
 import math
 import os
@@ -37,6 +38,58 @@ def load_shared():
 def projection(reader,face1,face2,owner,coords):
     sign=1 if owner[CRITICAL[0]]==CELL else -1
     return reader.projection_of_face_pair(coords,face1,face2,sign)
+
+
+def exact_vertex_contribution(reader,p0,p1,face1,face2,sign):
+    """Exact Shapley-style projection decomposition over the moving vertices.
+
+    Each of the at-most-six joint-face vertices is swapped from the earlier to
+    the later observed coordinate, one at a time. Average the *difference* in
+    the signed face-centre-normal projection over all permutations of moving
+    vertices. This exactly telescopes to the observed endpoint delta, avoids
+    approximate gradient/quadrature error for large (~1 mm) mesh motions, and
+    is symmetric across vertex orderings. Counterfactual intermediate faces
+    are diagnostic constructs, NOT reconstructed OpenFOAM simulation steps,
+    and the resulting attributions are not a unique physical causal split.
+    """
+    vertices=sorted(set(face1+face2))
+    moving=[i for i in vertices
+            if any(abs(p1[i][j]-p0[i][j])>1e-15 for j in range(3))]
+    if len(moving)>7:fail("EXACT_VERTEX_ATTRIBUTION_TOO_MANY_VERTICES")
+    base=reader.projection_of_face_pair(p0,face1,face2,sign)
+    end=reader.projection_of_face_pair(p1,face1,face2,sign)
+    contribution={i:0. for i in vertices}
+    count=0
+    for ordering in itertools.permutations(moving):
+        hybrid=list(p0)
+        prev=base
+        for i in ordering:
+            hybrid[i]=p1[i]
+            current=reader.projection_of_face_pair(hybrid,face1,face2,sign)
+            contribution[i]+=(current-prev)
+            prev=current
+        if abs(prev-end)>1e-10:
+            fail("EXACT_VERTEX_FINAL_HYBRID_NOT_MATCHED")
+        count+=1
+    for i in moving:
+        contribution[i]/=count
+    total=sum(contribution.values())
+    err=total-(end-base)
+    if abs(err)>1e-12:
+        fail("EXACT_VERTEX_CONTRIBUTION_TELESCOPING_MISMATCH "+repr(err))
+    return {
+      "method":"exact_permutation_averaged_counterfactual_shapley",
+      "number_of_moving_vertices":len(moving),
+      "number_of_vertex_orders":count,
+      "start_projection_m":base,
+      "end_projection_m":end,
+      "net_observed_change_m":end-base,
+      "sum_vertex_contributions_m":total,
+      "closure_error_m":err,
+      "vertex_contributions_m":dict(sorted(contribution.items(),
+                                key=lambda kv:abs(kv[1]),reverse=True)),
+      "interpretation":"attribution diagnostic only; not a physical force, solver fix or trajectory",
+    }
 
 def inspect(label,proc,t0,t1,reader):
     poly=proc/"constant/polyMesh"
@@ -82,11 +135,20 @@ def inspect(label,proc,t0,t1,reader):
     for v in tracked:
         dv=tuple((p1[v][d]-p0[v][d])*1e6 for d in range(3))
         print("CRITICAL_VERTEX_DELTA_UM",v,dv)
-    sensitivity=reader.finite_difference_vertex_attribution(
-        p0,p1,faces[CRITICAL[0]],faces[CRITICAL[1]],sign)
-    if abs(sensitivity["closure_error_m"])>5e-9:fail("SENSITIVITY_NUMERIC_CLOSURE_FAILURE")
-    print("CRITICAL_VERTEX_SIGNED_SENSITIVITY_UM",{
-        k:round(v*1e6,10) for k,v in sensitivity["vertex_contributions_m"].items()})
+    # Exact endpoint decomposition avoids the first-order 16-step path
+    # quadrature failure at nearly one millimetre of observed motion.
+    sensitivity=exact_vertex_contribution(
+        reader,p0,p1,faces[CRITICAL[0]],faces[CRITICAL[1]],sign)
+    print("EXACT_SYMMETRIC_VERTEX_PROJECTION_ATTRIBUTION",{
+        "orders":sensitivity["number_of_vertex_orders"],
+        "method":sensitivity["method"],
+        "signed_vertex_contributions_um":{
+            k:round(v*1e6,9) for k,v in sensitivity["vertex_contributions_m"].items()},
+        "sum_um":sensitivity["sum_vertex_contributions_m"]*1e6,
+        "net_um":sensitivity["net_observed_change_m"]*1e6,
+        "closure_um":sensitivity["closure_error_m"]*1e6,
+        "warning":sensitivity["interpretation"],
+    })
     print("DELTA_PROJECTION_UM",motion["projection_change_m"]*1e6)
     # Native checkMesh records are the authoritative pass/fail indicators.
     for t in (t0,t1):
