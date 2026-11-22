@@ -2,8 +2,8 @@
 """One geometry-driven native coupled ALE-FSI repair, rank5 cell2758 bed side.
 
 This is an EXPERIMENTAL, not yet validated improvement. It differs from
-the exhausted C1-C3 scan by preserving V3-C2's proven-through-0.580625
-positive-Y field and adding a separate bounded high-diffusivity bed-side
+the exhausted C1-C3 scan by preserving V3-C2's native-mesh-guard-
+passing-through-0.580625 positive-Y field (not an accepted checkpoint) and adding a separate bounded high-diffusivity bed-side
 region around actual concave cell2758. Never changes any original run,
 bed vertices, checkpoint points, mesh topology, guard or physical solver.
 No automatic production chain until 0.6035 is actually validated.
@@ -221,8 +221,8 @@ def run():
     p,old,source,this=roots()
     if not this.is_dir():stop("EXPERIMENT_ROOT_MISSING")
     for name in ("trial-96763","trial-96764"):
-        # Existing verified full backup: verify SHA256; do not overwrite.
-        mod.backup_trial(name,p,this)
+        # Re-verify existing full checksum backups. NEVER duplicate them.
+        mod.backup_trial(name,p,old)
     core=mod.find_core(old)
     driver=mod.import_driver(Path.home()/"hpcc-fsi/three-day-resume-20261119/.mesh-repair558-data.29CSy1/resume-cycles.py")
     os.environ["FSI_DELTA_CORE_PATH"]=str(core)
@@ -289,12 +289,14 @@ def submit():
             old/"backups/trial-96764.manifest.json").is_file():
         stop("VERIFIED_BACKUP_MANIFESTS_NOT_PRESENT")
     this.mkdir()
-    (this/"backups").mkdir()
-    # Copy/hardlink existing verified backups? No: preserve old backups unchanged.
-    # Use a read-only verification file, while mod.backup_trial will safely
-    # take fresh independent backup in experiment root if needed.
-    src_script=Path(__file__).resolve()
-    if not src_script.is_file():stop("SCRIPT_FILE_MISSING")
+    # Immutable job script must live on shared /data/icto, not login-node /tmp.
+    origin=Path(__file__).resolve()
+    if not origin.is_file():stop("SCRIPT_FILE_MISSING")
+    src_script=this/"one-shot-bed2758-native-fsi.py"
+    shutil.copy2(origin,src_script)
+    if hashlib.sha256(origin.read_bytes()).digest()!=hashlib.sha256(src_script.read_bytes()).digest():
+        stop("PINNED_JOB_SCRIPT_PRIVATE_COPY_MISMATCH")
+    src_script.chmod(0o444)
     safe_data=info.copy()
     safe_data["actual_FSI_run_passed"]=False
     mod.dump(this/"PRE_SUBMISSION_PLAN.json",safe_data)
