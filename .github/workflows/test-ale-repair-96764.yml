@@ -1,0 +1,60 @@
+name: Validate ALE 96764 repair harness
+on:
+  push:
+    branches:
+      - fix/ale-concave-96764-20261122
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test harness with synthetic OpenFOAM file snippets
+        run: |
+          set -euo pipefail
+          python3 -m py_compile hpcc/ale-repair-96764/repair96764.py hpcc/ale-repair-96764/test_repair96764.py
+          python3 -m py_compile hpcc/ale-repair-96764/forensic-failed-mesh-checkpoints.py
+          python3 -m py_compile hpcc/ale-repair-96764/audit-cell2758-geometry-readonly.py
+          python3 hpcc/ale-repair-96764/audit-cell2758-geometry-readonly.py --self-test
+          python3 hpcc/ale-repair-96764/test_repair96764.py -v
+          python3 -m py_compile hpcc/ale-repair-96764/one-shot-bed2758-native-fsi.py
+          python3 -m py_compile hpcc/ale-repair-96764/triage-98512-first-window-readonly.py
+          python3 -m py_compile hpcc/ale-repair-96764/native-check-98512-first-window.py
+          python3 -m py_compile hpcc/ale-repair-96764/compare-98512-and-c2-cell2758.py
+          python3 -m py_compile hpcc/ale-repair-96764/audit-restart-state-96763-c2-98512-readonly.py
+          python3 -m py_compile hpcc/ale-repair-96764/audit-ale-ramp-lib-and-cellDisplacement-readonly.py
+          python3 hpcc/ale-repair-96764/reconstruct-elf-ramp-20261122.py
+          bash -n hpcc/ale-repair-96764/extract-custom-ale-complete-elf-readonly.sh
+          python3 hpcc/ale-repair-96764/test_compare_98512_exact.py -v
+          python3 hpcc/ale-repair-96764/native-check-98512-first-window.py --help
+          python3 hpcc/ale-repair-96764/test_one_shot_bed2758.py -v
+          python3 -m py_compile hpcc/ale-repair-96764/continue-c2-minus2percent-native-fsi.py
+          python3 hpcc/ale-repair-96764/test_continue_c2_minus2percent.py -v
+      - name: Check frozen bootstrap, source pinning and bash syntax
+        run: |
+          set -euo pipefail
+          bash -n hpcc/ale-repair-96764/bootstrap-96764.sh
+          bash -n hpcc/ale-repair-96764/bootstrap-96764-v2.sh
+          bash -n hpcc/ale-repair-96764/bootstrap-96764-v3.sh
+          bash -n hpcc/ale-repair-96764/bootstrap-96764-v4.sh
+          bash -n hpcc/ale-repair-96764/bootstrap-96764-v5.sh
+          bash -n hpcc/ale-repair-96764/run-96764-container.sh
+          bash -n hpcc/ale-repair-96764/arm-after-97576.sh
+          bash -n hpcc/ale-repair-96764/watch-after-97576.sh
+          bash -n hpcc/ale-repair-96764/triage-97576-readonly.sh
+          bash -n hpcc/ale-repair-96764/stop-duplicate-97854.sh
+          bash -n hpcc/ale-repair-96764/diagnose-native-concavity-97576-c2.sh
+          bash -n hpcc/ale-repair-96764/retry-native-concavity-98066-missing-schemes.sh
+          test "$(git hash-object hpcc/ale-repair-96764/repair96764.py)" = "bc8c4decb24cf3b94a017f7149a2080bf7570929"
+          test "$(git hash-object hpcc/clean-production/segment.py)" = "15a219c75a7e417d707549c2a0e46bbebd761d19"
+          grep -Fq "bc8c4decb24cf3b94a017f7149a2080bf7570929" hpcc/ale-repair-96764/bootstrap-96764-v5.sh
+          test "$(git hash-object hpcc/ale-repair-96764/run-96764-container.sh)" = "ceab0d1daccb3624bcaff44ec27d7caff0b19764"
+          test "$(git hash-object hpcc/ale-repair-96764/arm-after-97576.sh)" = "a090dcac8f74b9b07449833056e3072a2e3a95df"
+          test "$(git hash-object hpcc/ale-repair-96764/watch-after-97576.sh)" = "e627cf5b3acf44d458d627be234d9d613314a801"
+          grep -Fq "ceab0d1daccb3624bcaff44ec27d7caff0b19764" hpcc/ale-repair-96764/bootstrap-96764-v5.sh
+      - name: Check script does not execute HPCC when imported
+        run: |
+          python3 hpcc/ale-repair-96764/repair96764.py --help
